@@ -70,6 +70,25 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void SymbolComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (e.AddedItems.Count > 0 && e.AddedItems[0] is string sym && sym != _vm.SelectedSymbol)
+        {
+            _vm.SelectedSymbol = sym;
+            await _vm.ChangeSymbolCommand.ExecuteAsync(null);
+        }
+    }
+
+    private async void SymbolComboBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && !string.IsNullOrWhiteSpace(_vm.SelectedSymbol))
+        {
+            _vm.SelectedSymbol = _vm.SelectedSymbol.Trim().ToUpperInvariant();
+            await _vm.ChangeSymbolCommand.ExecuteAsync(null);
+            SymbolComboBox.MoveFocus(new System.Windows.Input.TraversalRequest(System.Windows.Input.FocusNavigationDirection.Next));
+        }
+    }
+
     private void HotkeyIndicator_Click(object sender, MouseButtonEventArgs e)
         => _vm.ToggleHotkeysCommand.Execute(null);
 

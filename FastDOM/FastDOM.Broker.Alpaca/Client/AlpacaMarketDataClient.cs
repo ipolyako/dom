@@ -22,6 +22,9 @@ public class AlpacaMarketDataClient : IMarketDataClient
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _wsCts;
     private bool _connected;
+    private bool _disposed;
+    // Last known quote per symbol — updated by both quote ticks and trade ticks
+    private readonly Dictionary<string, Quote> _latestQuote = new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsConnected => _connected;
     public bool SupportsLevelTwo => false;
@@ -81,7 +84,7 @@ public class AlpacaMarketDataClient : IMarketDataClient
         _ws?.Dispose();
         _ws = null;
         _connected = false;
-        _connectionSubject.OnNext(false);
+        if (!_disposed) _connectionSubject.OnNext(false);
     }
 
     public async Task<Quote?> GetSnapshotAsync(string symbol, CancellationToken ct = default)
@@ -92,7 +95,10 @@ public class AlpacaMarketDataClient : IMarketDataClient
             if (!resp.IsSuccessStatusCode) return null;
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
-            return ParseSnapshot(doc.RootElement, symbol);
+            var snapshot = ParseSnapshot(doc.RootElement, symbol);
+            if (snapshot != null)
+                _latestQuote[symbol] = snapshot; // seed cache so trade ticks can update Last
+            return snapshot;
         }
         catch (Exception ex)
         {
@@ -104,15 +110,27 @@ public class AlpacaMarketDataClient : IMarketDataClient
     public async Task SubscribeQuotesAsync(string symbol, CancellationToken ct = default)
     {
         if (_ws?.State != WebSocketState.Open) return;
-        var msg = JsonSerializer.Serialize(new { action = "subscribe", quotes = new[] { symbol } });
+        // Subscribe to both quotes (bid/ask) and trades (last price) so the DOM stays live
+        var msg = JsonSerializer.Serialize(new
+        {
+            action = "subscribe",
+            quotes = new[] { symbol },
+            trades = new[] { symbol },
+        });
         await SendWsAsync(msg, ct);
     }
 
     public async Task UnsubscribeQuotesAsync(string symbol, CancellationToken ct = default)
     {
         if (_ws?.State != WebSocketState.Open) return;
-        var msg = JsonSerializer.Serialize(new { action = "unsubscribe", quotes = new[] { symbol } });
+        var msg = JsonSerializer.Serialize(new
+        {
+            action = "unsubscribe",
+            quotes = new[] { symbol },
+            trades = new[] { symbol },
+        });
         await SendWsAsync(msg, ct);
+        _latestQuote.Remove(symbol);
     }
 
     public Task SubscribeDepthAsync(string symbol, CancellationToken ct = default)
@@ -152,7 +170,7 @@ public class AlpacaMarketDataClient : IMarketDataClient
         {
             _logger.LogError(ex, "Alpaca WS receive loop error");
             _connected = false;
-            _connectionSubject.OnNext(false);
+            if (!_disposed) _connectionSubject.OnNext(false);
         }
     }
 
@@ -170,13 +188,46 @@ public class AlpacaMarketDataClient : IMarketDataClient
                 var type = t.GetString();
                 switch (type)
                 {
-                    case "q": // quote
+                    case "q": // bid/ask update — merge into cached quote and emit
                         var q = ParseWsQuote(item);
-                        if (q != null) _quoteSubject.OnNext(q);
+                        if (q != null)
+                        {
+                            if (_latestQuote.TryGetValue(q.Symbol, out var prev))
+                            {
+                                q.Last    = prev.Last;
+                                q.Open    = prev.Open;
+                                q.Close   = prev.Close;
+                                q.High    = prev.High;
+                                q.Low     = prev.Low;
+                                q.Volume  = prev.Volume;
+                            }
+                            _latestQuote[q.Symbol] = q;
+                            _quoteSubject.OnNext(q);
+                        }
                         break;
-                    case "t": // trade
+                    case "t": // trade — update Last on cached quote and emit it
                         var tr = ParseWsTrade(item);
-                        if (tr != null) _tradeSubject.OnNext(tr);
+                        if (tr != null)
+                        {
+                            _tradeSubject.OnNext(tr);
+                            if (_latestQuote.TryGetValue(tr.Symbol, out var cached))
+                            {
+                                cached.Last = tr.Price;
+                                _quoteSubject.OnNext(cached);
+                            }
+                            else
+                            {
+                                // No quote yet — emit a minimal quote so the DOM has a center price
+                                var fromTrade = new Quote
+                                {
+                                    Symbol       = tr.Symbol,
+                                    Last         = tr.Price,
+                                    TimestampUtc = tr.TimestampUtc,
+                                };
+                                _latestQuote[tr.Symbol] = fromTrade;
+                                _quoteSubject.OnNext(fromTrade);
+                            }
+                        }
                         break;
                 }
             }
@@ -246,6 +297,7 @@ public class AlpacaMarketDataClient : IMarketDataClient
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         await DisconnectAsync();
         _quoteSubject.Dispose();
         _depthSubject.Dispose();

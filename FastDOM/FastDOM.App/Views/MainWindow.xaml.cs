@@ -40,9 +40,12 @@ public partial class MainWindow : Window
         _broker = broker;
         _domService = domService;
 
-        // Auto-scroll activity log
+        // Auto-scroll activity log — defer to Background priority so the ItemsControl
+        // finishes processing CollectionChanged before ScrollIntoView triggers layout.
         _vm.ActivityLog.CollectionChanged += (_, _) =>
-            ActivityListBox.ScrollIntoView(ActivityListBox.Items[^1]);
+            Dispatcher.InvokeAsync(
+                () => { if (ActivityListBox.Items.Count > 0) ActivityListBox.ScrollIntoView(ActivityListBox.Items[ActivityListBox.Items.Count - 1]); },
+                System.Windows.Threading.DispatcherPriority.Background);
 
         // Wire DOM click events
         _vm.DomViewModel.PriceLevelClicked += OnDomPriceLevelClickedInternal;

@@ -206,8 +206,20 @@ public partial class MainViewModel : ObservableObject
     private void LogActivity(string message)
     {
         var entry = $"{DateTime.Now:HH:mm:ss.fff} {message}";
+        _logger.LogInformation("{Entry}", entry);
+        if (Application.Current?.Dispatcher.CheckAccess() == false)
+        {
+            Application.Current.Dispatcher.InvokeAsync(() => AppendActivityEntry(entry));
+        }
+        else
+        {
+            AppendActivityEntry(entry);
+        }
+    }
+
+    private void AppendActivityEntry(string entry)
+    {
         if (ActivityLog.Count >= 500) ActivityLog.RemoveAt(0);
         ActivityLog.Add(entry);
-        _logger.LogInformation("{Entry}", entry);
     }
 }

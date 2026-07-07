@@ -22,6 +22,9 @@ public partial class PositionViewModel : ObservableObject
     [ObservableProperty] private decimal? _buyingPower;
     [ObservableProperty] private bool _hasPosition;
     [ObservableProperty] private string _pnLDisplay = "—";
+    [ObservableProperty] private string _realizedPnLDisplay = "—";
+    [ObservableProperty] private string _dayPnLDisplay = "—";
+    [ObservableProperty] private decimal? _dayPnL;
 
     public Position? CurrentPosition { get; private set; }
     public AccountSummary? CurrentAccount { get; private set; }
@@ -59,7 +62,8 @@ public partial class PositionViewModel : ObservableObject
         CurrentPosition.CurrentPrice = lastPrice;
         var pnl = (lastPrice - CurrentPosition.AverageCost) * CurrentPosition.Quantity;
         UnrealizedPnL = pnl;
-        PnLDisplay = pnl >= 0 ? $"+${pnl:F2}" : $"-${Math.Abs(pnl):F2}";
+        PnLDisplay = FormatPnL(pnl);
+        RefreshDayPnL();
     }
 
     private void UpdateDisplay(Position? pos)
@@ -71,6 +75,7 @@ public partial class PositionViewModel : ObservableObject
             AverageCost = 0;
             HasPosition = false;
             PnLDisplay = "—";
+            UnrealizedPnL = null;
         }
         else
         {
@@ -79,9 +84,23 @@ public partial class PositionViewModel : ObservableObject
             AverageCost = pos.AverageCost;
             HasPosition = true;
             UnrealizedPnL = pos.UnrealizedPnL;
-            PnLDisplay = pos.UnrealizedPnL.HasValue
-                ? (pos.UnrealizedPnL >= 0 ? $"+${pos.UnrealizedPnL:F2}" : $"-${Math.Abs(pos.UnrealizedPnL.Value):F2}")
-                : "—";
+            PnLDisplay = pos.UnrealizedPnL.HasValue ? FormatPnL(pos.UnrealizedPnL.Value) : "—";
         }
+
+        RealizedPnLDisplay = CurrentAccount?.DailyRealizedPnL.HasValue == true
+            ? FormatPnL(CurrentAccount.DailyRealizedPnL.Value) : "—";
+        RefreshDayPnL();
     }
+
+    private void RefreshDayPnL()
+    {
+        var realized = CurrentAccount?.DailyRealizedPnL ?? 0m;
+        var unrealized = UnrealizedPnL ?? 0m;
+        var day = realized + unrealized;
+        DayPnL = day == 0m ? (decimal?)null : day;
+        DayPnLDisplay = day == 0m ? "—" : FormatPnL(day);
+    }
+
+    private static string FormatPnL(decimal v) =>
+        v >= 0 ? $"+${v:F2}" : $"-${Math.Abs(v):F2}";
 }

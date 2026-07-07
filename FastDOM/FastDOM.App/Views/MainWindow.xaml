@@ -150,10 +150,68 @@
                 <views:OrderTicketView DataContext="{Binding OrderTicketViewModel}"/>
             </DockPanel>
 
-            <!-- CENTER: DOM -->
-            <views:DomView Grid.Column="1" DataContext="{Binding DomViewModel}"
-                           DomPriceLevelClicked="OnDomPriceLevelClicked"
-                           DomContextMenuRequested="OnDomContextMenu"/>
+            <!-- CENTER: Position strip + DOM -->
+            <DockPanel Grid.Column="1">
+
+                <!-- Position summary strip above DOM -->
+                <Border DockPanel.Dock="Top" Background="#FF111111" Padding="6,5"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
+                        DataContext="{Binding PositionViewModel}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Side + Qty -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                            <TextBlock Text="{Binding Side}" FontWeight="Bold" FontSize="13"
+                                       Foreground="{Binding Side, Converter={StaticResource SideBrushConverter}}"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text=" " FontSize="13" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Quantity}" FontSize="13" FontWeight="Bold"
+                                       Foreground="{Binding Side, Converter={StaticResource SideBrushConverter}}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Avg cost -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0"
+                                    Visibility="{Binding HasPosition, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="@" Foreground="{StaticResource SecondaryForeBrush}" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                            <TextBlock Text="{Binding AverageCost, StringFormat=F2}" FontSize="12"
+                                       Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Unr. P&L (since open) -->
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Unr " Foreground="{StaticResource SecondaryForeBrush}" FontSize="11" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding PnLDisplay}" FontSize="12" FontWeight="Bold"
+                                       Foreground="{Binding UnrealizedPnL, Converter={StaticResource PnLBrushConverter}}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Separator -->
+                        <TextBlock Grid.Column="4" Text="│" Foreground="{StaticResource SecondaryForeBrush}"
+                                   FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+
+                        <!-- Day P&L -->
+                        <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Day " Foreground="{StaticResource SecondaryForeBrush}" FontSize="11" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding DayPnLDisplay}" FontSize="12" FontWeight="Bold"
+                                       Foreground="{Binding DayPnL, Converter={StaticResource PnLBrushConverter}}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <views:DomView DataContext="{Binding DomViewModel}"
+                               DomPriceLevelClicked="OnDomPriceLevelClicked"
+                               DomContextMenuRequested="OnDomContextMenu"/>
+            </DockPanel>
 
             <!-- RIGHT: Hot buttons -->
             <views:HotButtonsView Grid.Column="2" DataContext="{Binding HotButtonsViewModel}"

@@ -18,6 +18,7 @@ public class ConfigManager
 
     public AppSettings AppSettings { get; private set; } = new();
     public SchwabConfig SchwabConfig { get; private set; } = new();
+    public AlpacaConfig AlpacaConfig { get; private set; } = new();
     public RiskProfile RiskProfile { get; private set; } = new();
     public HotkeyConfig HotkeyConfig { get; private set; } = new();
     public List<HotButtonConfig> HotButtons { get; private set; } = [];
@@ -45,6 +46,7 @@ public class ConfigManager
         BootstrapFromExamples();
         AppSettings = Load<AppSettings>("appsettings.json") ?? new AppSettings();
         SchwabConfig = Load<SchwabConfig>("broker.schwab.json") ?? new SchwabConfig();
+        AlpacaConfig = Load<AlpacaConfig>("alpaca.json") ?? new AlpacaConfig();
         RiskProfile = Load<RiskProfile>("risk.profile.json") ?? new RiskProfile();
         HotkeyConfig = Load<HotkeyConfig>("hotkeys.json") ?? new HotkeyConfig();
         HotButtons = Load<List<HotButtonConfig>>("hotbuttons.json") ?? DefaultHotButtons();
@@ -59,6 +61,7 @@ public class ConfigManager
         {
             ("appsettings.json",   "appsettings.example.json"),
             ("broker.schwab.json", "broker.schwab.example.json"),
+            ("alpaca.json",        "alpaca.example.json"),
             ("risk.profile.json",  "risk.profile.example.json"),
         };
         foreach (var (real, example) in pairs)

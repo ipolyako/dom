@@ -28,12 +28,12 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Mode badge -->
-                <Border Grid.Column="0" CornerRadius="3" Padding="6,2" Margin="0,0,8,0"
-                        Background="{Binding IsLiveMode, Converter={StaticResource LiveModeBrushConverter}}">
-                    <TextBlock Text="{Binding TradingModeLabel}" FontWeight="Bold" FontSize="11"
-                               Foreground="White"/>
-                </Border>
+                <!-- Mode selector -->
+                <ComboBox Grid.Column="0" Width="130" Margin="0,0,8,0"
+                          ItemsSource="{Binding ModeOptions}"
+                          SelectedItem="{Binding SelectedMode}"
+                          DisplayMemberPath="Label"
+                          ToolTip="Switch trading mode"/>
 
                 <!-- Symbol selector -->
                 <ComboBox Grid.Column="1" Width="100" IsEditable="True"

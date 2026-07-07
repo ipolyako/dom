@@ -5,17 +5,12 @@ using FastDOM.App.ViewModels;
 using FastDOM.App.Views;
 using FastDOM.Broker;
 using FastDOM.Broker.Interfaces;
-using FastDOM.Broker.Mock;
-using FastDOM.Broker.Schwab.Auth;
-using FastDOM.Infrastructure.Config;
-using FastDOM.Broker.Schwab.Client;
-using FastDOM.Broker.Schwab.Mapping;
+using FastDOM.Broker.Proxies;
 using FastDOM.Core.Enums;
 using FastDOM.Infrastructure.Config;
 using FastDOM.Infrastructure.Logging;
 using FastDOM.Infrastructure.Security;
 using FastDOM.MarketData.Interfaces;
-using FastDOM.MarketData.Mock;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -113,22 +108,13 @@ public partial class App : Application
         });
         services.AddSingleton<IRiskManager>(sp => sp.GetRequiredService<RiskManager>());
 
-        // Broker & market data — wired based on mode
-        services.AddSingleton<IBrokerClient>(sp =>
-        {
-            var cfg = sp.GetRequiredService<ConfigManager>();
-            return cfg.AppSettings.Mode == TradingMode.Simulation
-                ? (IBrokerClient)new MockBrokerClient(sp.GetRequiredService<ILogger<MockBrokerClient>>())
-                : CreateSchwabBroker(sp);
-        });
+        // Runtime proxies — swapped by BrokerFactory when mode changes
+        services.AddSingleton<RuntimeBrokerProxy>();
+        services.AddSingleton<RuntimeMarketDataProxy>();
+        services.AddSingleton<IBrokerClient>(sp => sp.GetRequiredService<RuntimeBrokerProxy>());
+        services.AddSingleton<IMarketDataClient>(sp => sp.GetRequiredService<RuntimeMarketDataProxy>());
+        services.AddSingleton<BrokerFactory>();
 
-        services.AddSingleton<IMarketDataClient>(sp =>
-        {
-            var cfg = sp.GetRequiredService<ConfigManager>();
-            return cfg.AppSettings.Mode == TradingMode.Simulation
-                ? (IMarketDataClient)new MockMarketDataClient(sp.GetRequiredService<ILogger<MockMarketDataClient>>())
-                : CreateSchwabMarketData(sp);
-        });
 
         // HotkeyConfig must be registered so HotkeyService can receive it via DI
         services.AddSingleton(sp => sp.GetRequiredService<ConfigManager>().HotkeyConfig);
@@ -148,38 +134,14 @@ public partial class App : Application
         // Views
         services.AddTransient<MainWindow>();
 
-        return services.BuildServiceProvider();
-    }
+        var provider = services.BuildServiceProvider();
 
-    private static IBrokerClient CreateSchwabBroker(IServiceProvider sp)
-    {
-        var cfg    = sp.GetRequiredService<ConfigManager>();
-        var derby  = new DerbyTokenProvider(
-            sp.GetRequiredService<ILogger<DerbyTokenProvider>>(),
-            cfg.TokenSource);
-        var auth   = new SchwabAuthProvider(
-            sp.GetRequiredService<ILogger<SchwabAuthProvider>>(),
-            cfg.SchwabConfig,
-            derby);
-        return new SchwabBrokerClient(
-            sp.GetRequiredService<ILogger<SchwabBrokerClient>>(),
-            cfg.SchwabConfig, auth,
-            new SchwabOrderMapper(sp.GetRequiredService<ILogger<SchwabOrderMapper>>()));
-    }
+        // Seed proxies with the initial mode before the window opens
+        var cfg     = provider.GetRequiredService<ConfigManager>();
+        var factory = provider.GetRequiredService<BrokerFactory>();
+        factory.SwitchModeAsync(cfg.AppSettings.Mode).GetAwaiter().GetResult();
 
-    private static IMarketDataClient CreateSchwabMarketData(IServiceProvider sp)
-    {
-        var cfg   = sp.GetRequiredService<ConfigManager>();
-        var derby = new DerbyTokenProvider(
-            sp.GetRequiredService<ILogger<DerbyTokenProvider>>(),
-            cfg.TokenSource);
-        var auth  = new SchwabAuthProvider(
-            sp.GetRequiredService<ILogger<SchwabAuthProvider>>(),
-            cfg.SchwabConfig,
-            derby);
-        return new SchwabMarketDataClient(
-            sp.GetRequiredService<ILogger<SchwabMarketDataClient>>(),
-            cfg.SchwabConfig, auth);
+        return provider;
     }
 
     protected override void OnExit(ExitEventArgs e)

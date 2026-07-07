@@ -13,6 +13,8 @@ using Microsoft.Extensions.Logging;
 
 namespace FastDOM.App.ViewModels;
 
+public record TradingModeOption(string Label, TradingMode Mode);
+
 public partial class MainViewModel : ObservableObject
 {
     private readonly ILogger<MainViewModel> _logger;
@@ -23,6 +25,7 @@ public partial class MainViewModel : ObservableObject
     private readonly DomService _domService;
     private readonly HotkeyService _hotkeyService;
     private readonly ConfigManager _config;
+    private readonly BrokerFactory _brokerFactory;
     private readonly DispatcherTimer _statusTimer;
 
     [ObservableProperty] private string _selectedSymbol = "SPY";
@@ -43,6 +46,17 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<AccountInfo> Accounts { get; } = [];
     public ObservableCollection<string> ActivityLog { get; } = [];
 
+    public static IReadOnlyList<TradingModeOption> ModeOptions { get; } =
+    [
+        new("SIM",          TradingMode.Simulation),
+        new("Schwab Live",  TradingMode.SchwabLive),
+        new("Alpaca Paper", TradingMode.AlpacaPaper),
+        new("Alpaca Live",  TradingMode.AlpacaLive),
+    ];
+
+    [ObservableProperty] private TradingModeOption _selectedMode =
+        ModeOptions.First(m => m.Mode == TradingMode.Simulation);
+
     public DomViewModel DomViewModel { get; }
     public PositionViewModel PositionViewModel { get; }
     public HotButtonsViewModel HotButtonsViewModel { get; }
@@ -57,6 +71,7 @@ public partial class MainViewModel : ObservableObject
         DomService domService,
         HotkeyService hotkeyService,
         ConfigManager config,
+        BrokerFactory brokerFactory,
         DomViewModel domVm,
         PositionViewModel posVm,
         HotButtonsViewModel hotVm,
@@ -70,19 +85,17 @@ public partial class MainViewModel : ObservableObject
         _domService = domService;
         _hotkeyService = hotkeyService;
         _config = config;
+        _brokerFactory = brokerFactory;
 
         DomViewModel = domVm;
         PositionViewModel = posVm;
         HotButtonsViewModel = hotVm;
         OrderTicketViewModel = ticketVm;
 
-        IsLiveMode = config.AppSettings.Mode == TradingMode.SchwabLive;
-        TradingModeLabel = config.AppSettings.Mode switch
-        {
-            TradingMode.SchwabLive    => "⚠ LIVE",
-            TradingMode.SchwabSandbox => "SANDBOX",
-            _                         => "SIM"
-        };
+        var initialMode = config.AppSettings.Mode;
+        _selectedMode = ModeOptions.FirstOrDefault(m => m.Mode == initialMode) ?? ModeOptions[0];
+        IsLiveMode = initialMode != TradingMode.Simulation;
+        TradingModeLabel = ModeLabel(initialMode);
 
         ShareSize = config.AppSettings.DefaultShareSize;
         SelectedSymbol = config.AppSettings.DefaultSymbol;
@@ -105,6 +118,27 @@ public partial class MainViewModel : ObservableObject
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _statusTimer.Tick += (_, _) => UpdateDataAge();
         _statusTimer.Start();
+    }
+
+    partial void OnSelectedModeChanged(TradingModeOption value)
+        => _ = ChangeModeAsync(value.Mode);
+
+    private static string ModeLabel(TradingMode m) => m switch
+    {
+        TradingMode.SchwabLive   => "⚠ SCHWAB LIVE",
+        TradingMode.AlpacaPaper  => "ALPACA PAPER",
+        TradingMode.AlpacaLive   => "⚠ ALPACA LIVE",
+        _                        => "SIM",
+    };
+
+    private async Task ChangeModeAsync(TradingMode mode)
+    {
+        LogActivity($"Switching to {ModeLabel(mode)}...");
+        await _brokerFactory.SwitchModeAsync(mode);
+        IsLiveMode = mode != TradingMode.Simulation;
+        TradingModeLabel = ModeLabel(mode);
+        // Reconnect with new broker
+        await ConnectAsync();
     }
 
     [RelayCommand]

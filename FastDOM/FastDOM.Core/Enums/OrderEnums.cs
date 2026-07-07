@@ -53,8 +53,9 @@ public enum OrderSource
 public enum TradingMode
 {
     Simulation,
-    SchwabSandbox,
-    SchwabLive
+    SchwabLive,
+    AlpacaPaper,
+    AlpacaLive
 }
 
 public enum PositionSide { Flat, Long, Short }

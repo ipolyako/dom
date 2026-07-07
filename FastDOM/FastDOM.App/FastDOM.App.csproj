@@ -12,6 +12,12 @@
     <AssemblyName>FastDOM</AssemblyName>
     <RootNamespace>FastDOM.App</RootNamespace>
   </PropertyGroup>
+  <!-- Example configs ship next to the exe; ConfigManager auto-copies to real files on first run -->
+  <ItemGroup>
+    <Content Include="..\config-examples\appsettings.json"     CopyToOutputDirectory="PreserveNewest" Link="appsettings.example.json"/>
+    <Content Include="..\config-examples\broker.schwab.json"   CopyToOutputDirectory="PreserveNewest" Link="broker.schwab.example.json"/>
+    <Content Include="..\config-examples\risk.profile.json"    CopyToOutputDirectory="PreserveNewest" Link="risk.profile.example.json"/>
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FastDOM.Core\FastDOM.Core.csproj" />
     <ProjectReference Include="..\FastDOM.Broker\FastDOM.Broker.csproj" />

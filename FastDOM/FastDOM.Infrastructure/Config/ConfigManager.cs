@@ -41,12 +41,34 @@ public class ConfigManager
 
     public void LoadAll()
     {
+        BootstrapFromExamples();
         AppSettings = Load<AppSettings>("appsettings.json") ?? new AppSettings();
         SchwabConfig = Load<SchwabConfig>("broker.schwab.json") ?? new SchwabConfig();
         RiskProfile = Load<RiskProfile>("risk.profile.json") ?? new RiskProfile();
         HotkeyConfig = Load<HotkeyConfig>("hotkeys.json") ?? new HotkeyConfig();
         HotButtons = Load<List<HotButtonConfig>>("hotbuttons.json") ?? DefaultHotButtons();
         _logger.LogInformation("Config loaded from {Dir}", _configDir);
+    }
+
+    private void BootstrapFromExamples()
+    {
+        var exeDir = AppContext.BaseDirectory;
+        var pairs = new[]
+        {
+            ("appsettings.json",   "appsettings.example.json"),
+            ("broker.schwab.json", "broker.schwab.example.json"),
+            ("risk.profile.json",  "risk.profile.example.json"),
+        };
+        foreach (var (real, example) in pairs)
+        {
+            var realPath    = Path.Combine(_configDir, real);
+            var examplePath = Path.Combine(exeDir, example);
+            if (!File.Exists(realPath) && File.Exists(examplePath))
+            {
+                File.Copy(examplePath, realPath);
+                _logger.LogInformation("Created default config {File} from example", real);
+            }
+        }
     }
 
     public void SaveAll()

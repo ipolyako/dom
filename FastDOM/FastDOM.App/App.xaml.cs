@@ -177,7 +177,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _services?.Dispose();
+        _services?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         Log.CloseAndFlush();
         base.OnExit(e);
     }

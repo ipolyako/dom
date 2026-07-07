@@ -7,6 +7,7 @@ using FastDOM.Broker;
 using FastDOM.Broker.Interfaces;
 using FastDOM.Broker.Mock;
 using FastDOM.Broker.Schwab.Auth;
+using FastDOM.Infrastructure.Config;
 using FastDOM.Broker.Schwab.Client;
 using FastDOM.Broker.Schwab.Mapping;
 using FastDOM.Core.Enums;
@@ -152,11 +153,14 @@ public partial class App : Application
 
     private static IBrokerClient CreateSchwabBroker(IServiceProvider sp)
     {
-        var cfg = sp.GetRequiredService<ConfigManager>();
-        var auth = new SchwabAuthProvider(
+        var cfg    = sp.GetRequiredService<ConfigManager>();
+        var derby  = new DerbyTokenProvider(
+            sp.GetRequiredService<ILogger<DerbyTokenProvider>>(),
+            cfg.TokenSource);
+        var auth   = new SchwabAuthProvider(
             sp.GetRequiredService<ILogger<SchwabAuthProvider>>(),
             cfg.SchwabConfig,
-            sp.GetRequiredService<SecureStorage>());
+            derby);
         return new SchwabBrokerClient(
             sp.GetRequiredService<ILogger<SchwabBrokerClient>>(),
             cfg.SchwabConfig, auth,
@@ -165,11 +169,14 @@ public partial class App : Application
 
     private static IMarketDataClient CreateSchwabMarketData(IServiceProvider sp)
     {
-        var cfg = sp.GetRequiredService<ConfigManager>();
-        var auth = new SchwabAuthProvider(
+        var cfg   = sp.GetRequiredService<ConfigManager>();
+        var derby = new DerbyTokenProvider(
+            sp.GetRequiredService<ILogger<DerbyTokenProvider>>(),
+            cfg.TokenSource);
+        var auth  = new SchwabAuthProvider(
             sp.GetRequiredService<ILogger<SchwabAuthProvider>>(),
             cfg.SchwabConfig,
-            sp.GetRequiredService<SecureStorage>());
+            derby);
         return new SchwabMarketDataClient(
             sp.GetRequiredService<ILogger<SchwabMarketDataClient>>(),
             cfg.SchwabConfig, auth);

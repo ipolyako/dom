@@ -21,6 +21,7 @@ public class ConfigManager
     public RiskProfile RiskProfile { get; private set; } = new();
     public HotkeyConfig HotkeyConfig { get; private set; } = new();
     public List<HotButtonConfig> HotButtons { get; private set; } = [];
+    public TokenSourceConfig TokenSource { get; private set; } = new();
 
     public ConfigManager(ILogger<ConfigManager> logger, string? configDir = null)
     {
@@ -47,6 +48,7 @@ public class ConfigManager
         RiskProfile = Load<RiskProfile>("risk.profile.json") ?? new RiskProfile();
         HotkeyConfig = Load<HotkeyConfig>("hotkeys.json") ?? new HotkeyConfig();
         HotButtons = Load<List<HotButtonConfig>>("hotbuttons.json") ?? DefaultHotButtons();
+        TokenSource = Load<TokenSourceConfig>("token.source.json") ?? new TokenSourceConfig();
         _logger.LogInformation("Config loaded from {Dir}", _configDir);
     }
 

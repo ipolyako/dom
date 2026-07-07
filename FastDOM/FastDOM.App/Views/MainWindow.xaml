@@ -39,6 +39,7 @@
                 <ComboBox Grid.Column="1" Width="100" IsEditable="True"
                           x:Name="SymbolComboBox"
                           ItemsSource="{Binding SymbolList}"
+                          SelectedItem="{Binding SelectedSymbol, Mode=OneWay}"
                           Text="{Binding SelectedSymbol, UpdateSourceTrigger=LostFocus}"
                           SelectionChanged="SymbolComboBox_SelectionChanged"
                           KeyDown="SymbolComboBox_KeyDown"

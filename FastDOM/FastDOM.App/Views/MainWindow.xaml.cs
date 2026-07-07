@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private readonly IBrokerClient _broker;
     private readonly DomService _domService;
     private bool _killSwitchPending;
+    private bool _symbolSelectionUpdating;
 
     public MainWindow(
         MainViewModel vm,
@@ -75,18 +76,22 @@ public partial class MainWindow : Window
 
     private async void SymbolComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (_vm == null) return;
+        if (_vm == null || _symbolSelectionUpdating) return;
         try
         {
-            if (e.AddedItems.Count > 0 && e.AddedItems[0] is string sym && sym != _vm.SelectedSymbol)
+            if (e.AddedItems.Count > 0 && e.AddedItems[0] is string sym)
             {
+                _symbolSelectionUpdating = true;
                 _vm.SelectedSymbol = sym;
+                _symbolSelectionUpdating = false;
+
                 if (_vm.ChangeSymbolCommand.CanExecute(null))
                     await _vm.ChangeSymbolCommand.ExecuteAsync(null);
             }
         }
         catch (Exception ex)
         {
+            _symbolSelectionUpdating = false;
             _vm.LastToast = $"Symbol change error: {ex.Message}";
         }
     }

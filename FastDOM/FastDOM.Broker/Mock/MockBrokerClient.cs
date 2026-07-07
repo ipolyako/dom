@@ -165,10 +165,68 @@ public class MockBrokerClient : IBrokerClient
     {
         if (!_orders.TryGetValue(id, out var state)) return;
         if (state.IsTerminal) return;
+
+        var fillPrice = state.LimitPrice ?? GetApproxPrice(state.Symbol);
         state.QuantityFilled = state.QuantityOrdered;
-        state.AverageFillPrice = state.LimitPrice ?? 100m;
+        state.AverageFillPrice = fillPrice;
         state.Transition(OrderStatus.Filled, "Simulated fill");
+
+        UpdatePositionOnFill(state, fillPrice);
         _orderSubject.OnNext(state);
+    }
+
+    private static decimal GetApproxPrice(string symbol) => symbol switch
+    {
+        "SPY"  => 550m, "QQQ"  => 480m, "NVDA" => 135m,
+        "TSLA" => 260m, "TQQQ" => 70m,  "SQQQ" => 8m,
+        _      => 100m
+    };
+
+    private void UpdatePositionOnFill(OrderState state, decimal fillPrice)
+    {
+        if (!_accounts.TryGetValue(state.AccountId, out var acc)) return;
+
+        var symbol = state.Symbol;
+        if (!acc.Positions.TryGetValue(symbol, out var pos))
+        {
+            pos = new Position { AccountId = state.AccountId, Symbol = symbol };
+            acc.Positions[symbol] = pos;
+        }
+
+        var prevQty  = pos.Quantity;
+        var delta    = state.Side == OrderSide.Buy ? state.QuantityFilled : -state.QuantityFilled;
+        var newQty   = prevQty + delta;
+
+        if (prevQty == 0)
+        {
+            pos.AverageCost = fillPrice;
+        }
+        else if (newQty == 0 || Math.Sign(newQty) == Math.Sign(prevQty))
+        {
+            if (Math.Abs(delta) > 0 && Math.Abs(newQty) > Math.Abs(prevQty))
+            {
+                // Adding to position — blend avg cost
+                pos.AverageCost = (pos.AverageCost * Math.Abs(prevQty) + fillPrice * Math.Abs(delta))
+                                  / Math.Abs(newQty);
+            }
+            else
+            {
+                // Reducing / closing — realise P&L
+                var sign = prevQty > 0 ? 1m : -1m;
+                acc.DailyRealizedPnL += (fillPrice - pos.AverageCost) * Math.Abs(delta) * sign;
+                if (newQty == 0) pos.AverageCost = 0;
+            }
+        }
+        else
+        {
+            // Crossing flat — close old side, open new side
+            var sign = prevQty > 0 ? 1m : -1m;
+            acc.DailyRealizedPnL += (fillPrice - pos.AverageCost) * Math.Abs(prevQty) * sign;
+            pos.AverageCost = fillPrice;
+        }
+
+        pos.Quantity = newQty;
+        acc.BuyingPower -= delta * fillPrice;
     }
 
     public ValueTask DisposeAsync()

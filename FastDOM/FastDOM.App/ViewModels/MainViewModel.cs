@@ -158,9 +158,14 @@ public partial class MainViewModel : ObservableObject
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
-            LogActivity($"Order {state.Status}: {state.Side} {state.QuantityOrdered} {state.Symbol}" +
-                        (state.LimitPrice.HasValue ? $" @{state.LimitPrice:F2}" : " MKT"));
+            var priceStr = state.AverageFillPrice.HasValue
+                ? $" @{state.AverageFillPrice:F2}"
+                : state.LimitPrice.HasValue ? $" @{state.LimitPrice:F2}" : " MKT";
+            LogActivity($"Order {state.Status}: {state.Side} {state.QuantityOrdered} {state.Symbol}{priceStr}");
             DomViewModel.RefreshOrders(_orderService.ActiveOrders.Values);
+
+            if (state.Status is OrderStatus.Filled or OrderStatus.PartiallyFilled)
+                _ = PositionViewModel.RefreshAsync(SelectedAccountId, state.Symbol);
         });
     }
 

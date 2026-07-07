@@ -118,6 +118,18 @@ public class MockMarketDataClient : IMarketDataClient
 
     private void TickSymbol(string symbol)
     {
+        try
+        {
+            TickSymbolCore(symbol);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "MockMarketData tick error for {Symbol}", symbol);
+        }
+    }
+
+    private void TickSymbolCore(string symbol)
+    {
         if (!_quotes.TryGetValue(symbol, out var prev)) return;
 
         decimal move = (decimal)(_rng.NextDouble() - 0.499) * 0.04m;

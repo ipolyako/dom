@@ -39,7 +39,14 @@ public class DomService : IDisposable
 
     public async Task SubscribeAsync(string symbol)
     {
+        // Unsubscribe previous symbol so its timer stops before the new one starts
+        if (!string.IsNullOrEmpty(_symbolInfo.Symbol) && _symbolInfo.Symbol != symbol)
+            await UnsubscribeAsync(_symbolInfo.Symbol);
+
+        _currentQuote = null;
+        _currentDepth = null;
         _symbolInfo = SymbolInfo.Default(symbol);
+
         await _marketData.SubscribeQuotesAsync(symbol);
         await _marketData.SubscribeDepthAsync(symbol);
 

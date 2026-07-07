@@ -30,6 +30,26 @@ public partial class App : Application
     {
         base.OnStartup(e);
         ConfigureLogging();
+
+        DispatcherUnhandledException += (_, ex) =>
+        {
+            Log.Fatal(ex.Exception, "Unhandled UI exception");
+            System.Windows.MessageBox.Show(
+                $"Unhandled error:\n\n{ex.Exception.GetType().Name}: {ex.Exception.Message}\n\n{ex.Exception.StackTrace}",
+                "FastDOM Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            ex.Handled = true;
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, ex) =>
+        {
+            var error = ex.ExceptionObject as Exception;
+            Log.Fatal(error, "Unhandled AppDomain exception (terminating={Term})", ex.IsTerminating);
+            if (ex.IsTerminating)
+                System.Windows.MessageBox.Show(
+                    $"Fatal error (app will close):\n\n{error?.GetType().Name}: {error?.Message}\n\n{error?.StackTrace}",
+                    "FastDOM Fatal Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        };
+
         _services = BuildServices();
         var window = _services.GetRequiredService<MainWindow>();
         window.Show();

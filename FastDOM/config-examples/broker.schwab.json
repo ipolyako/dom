@@ -1,0 +1,12 @@
+{
+  "appKey": "YOUR_SCHWAB_APP_KEY_HERE",
+  "callbackUrl": "https://127.0.0.1:8182",
+  "useSandbox": false,
+
+  "_note_1": "App Key and Callback URL come from developer.schwab.com.",
+  "_note_2": "App Secret is stored securely via DPAPI — never put it in this file.",
+  "_note_3": "useSandbox=true disables live order placement regardless of API connection.",
+  "_note_4": "Schwab does NOT have a public sandbox API — sandbox mode prevents orders from being submitted.",
+  "_note_5": "Both 'Accounts and Trading Production' and 'Market Data Production' must be added to your Schwab app.",
+  "_note_6": "App must reach 'Ready for use' status (may take several days after submission)."
+}

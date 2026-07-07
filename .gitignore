@@ -3,9 +3,10 @@
 **/obj/
 publish/
 
-# User secrets / credentials
+# User secrets / credentials — exclude real configs but allow config-examples/
 **/appsettings.local.json
 **/broker.schwab.json
+!**/config-examples/broker.schwab.json
 
 # OS / IDE
 .vs/

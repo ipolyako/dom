@@ -72,10 +72,19 @@ public partial class MainWindow : Window
 
     private async void SymbolComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (e.AddedItems.Count > 0 && e.AddedItems[0] is string sym && sym != _vm.SelectedSymbol)
+        if (_vm == null) return;
+        try
         {
-            _vm.SelectedSymbol = sym;
-            await _vm.ChangeSymbolCommand.ExecuteAsync(null);
+            if (e.AddedItems.Count > 0 && e.AddedItems[0] is string sym && sym != _vm.SelectedSymbol)
+            {
+                _vm.SelectedSymbol = sym;
+                if (_vm.ChangeSymbolCommand.CanExecute(null))
+                    await _vm.ChangeSymbolCommand.ExecuteAsync(null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _vm.LastToast = $"Symbol change error: {ex.Message}";
         }
     }
 

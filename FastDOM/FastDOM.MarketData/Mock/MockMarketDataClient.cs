@@ -13,9 +13,10 @@ public class MockMarketDataClient : IMarketDataClient
     private readonly Subject<MarketDepth> _depthSubject = new();
     private readonly Subject<Trade> _tradeSubject = new();
     private readonly Subject<bool> _connectionSubject = new();
-    private readonly Dictionary<string, Quote> _quotes = [];
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Quote> _quotes = new();
     private readonly Dictionary<string, Timer> _timers = [];
-    private readonly Random _rng = new();
+    // Random.Shared is thread-safe in .NET 6+; multiple timer callbacks would corrupt a per-instance Random
+    private static readonly Random _rng = Random.Shared;
     private bool _connected;
 
     public bool IsConnected => _connected;

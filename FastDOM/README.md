@@ -23,9 +23,16 @@ A lightweight Windows execution panel for active trading via the Schwab Trader A
 
 ## Requirements
 
-- Windows 10/11 or Windows Server 2019+
-- .NET 8 SDK (for building) or .NET 8 Runtime (for running published build)
-- A Schwab developer account at [developer.schwab.com](https://developer.schwab.com) (for live mode)
+**To run** — Windows 10/11 x64 only. No .NET installation needed; the published exe is fully self-contained.
+
+**To build from source** — .NET 8 SDK required.
+- Download: https://dotnet.microsoft.com/download/dotnet/8.0
+- If `dotnet` is not on PATH after install, use the full path:
+  ```
+  & "C:\Program Files\dotnet\dotnet.exe" publish ...
+  ```
+
+**For live trading** — a Schwab developer account at [developer.schwab.com](https://developer.schwab.com)
 
 ---
 

@@ -1,0 +1,36 @@
+<UserControl x:Class="FastDOM.App.Views.HotButtonsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             mc:Ignorable="d"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             Background="{StaticResource PanelBrush}">
+    <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="HOT BUTTONS" FontWeight="Bold"
+                   FontSize="11" Padding="8,4" Background="#FF111111"
+                   Foreground="{StaticResource SecondaryForeBrush}"/>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Buttons}" Margin="4">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Width="100" Height="34" Margin="2"
+                                Content="{Binding Label}"
+                                Background="{Binding Color}"
+                                Foreground="{Binding TextColor}"
+                                FontWeight="Bold" FontSize="11"
+                                Click="HotButton_Click"
+                                Tag="{Binding}"
+                                IsEnabled="{Binding IsEnabled}"
+                                ToolTip="{Binding KeyboardShortcut}"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

@@ -1,0 +1,17 @@
+# Build output
+**/bin/
+**/obj/
+publish/
+
+# User secrets / credentials
+**/appsettings.local.json
+**/broker.schwab.json
+
+# OS / IDE
+.vs/
+*.user
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

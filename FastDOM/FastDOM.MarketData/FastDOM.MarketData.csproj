@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FastDOM.Core\FastDOM.Core.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+    <PackageReference Include="System.Reactive" Version="6.0.1" />
+  </ItemGroup>
+</Project>

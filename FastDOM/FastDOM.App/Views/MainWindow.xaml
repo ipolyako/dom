@@ -1,0 +1,153 @@
+<Window x:Class="FastDOM.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:views="clr-namespace:FastDOM.App.Views"
+        mc:Ignorable="d"
+        Title="FastDOM — Execution Terminal"
+        Height="900" Width="1400"
+        MinHeight="700" MinWidth="1000"
+        Background="{StaticResource BackgroundBrush}"
+        Foreground="{StaticResource ForegroundBrush}"
+        KeyDown="Window_KeyDown">
+
+    <DockPanel>
+        <!-- TOP BAR: Symbol, Mode, Connect, Quote -->
+        <Border DockPanel.Dock="Top" Background="#FF0D0D0D" BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1" Padding="8,4">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Mode badge -->
+                <Border Grid.Column="0" CornerRadius="3" Padding="6,2" Margin="0,0,8,0"
+                        Background="{Binding IsLiveMode, Converter={StaticResource LiveModeBrushConverter}}">
+                    <TextBlock Text="{Binding TradingModeLabel}" FontWeight="Bold" FontSize="11"
+                               Foreground="White"/>
+                </Border>
+
+                <!-- Symbol selector -->
+                <ComboBox Grid.Column="1" Width="100" IsEditable="True"
+                          ItemsSource="{Binding SymbolList}"
+                          Text="{Binding SelectedSymbol, UpdateSourceTrigger=LostFocus}"
+                          Margin="0,0,4,0"/>
+
+                <!-- Account selector -->
+                <ComboBox Grid.Column="2" Width="160"
+                          ItemsSource="{Binding Accounts}"
+                          DisplayMemberPath="DisplayName"
+                          SelectedValuePath="AccountId"
+                          SelectedValue="{Binding SelectedAccountId}"
+                          Margin="0,0,8,0"/>
+
+                <!-- Quote display -->
+                <TextBlock Grid.Column="3" Text="{Binding QuoteDisplay}"
+                           VerticalAlignment="Center" FontSize="13" FontWeight="Bold"
+                           Foreground="{StaticResource LastBrush}" Margin="8,0"/>
+
+                <!-- Data age -->
+                <Border Grid.Column="4" CornerRadius="3" Padding="4,2" Margin="4,0"
+                        Background="{Binding MarketDataStale, Converter={StaticResource StaleBackgroundConverter}}">
+                    <TextBlock Text="{Binding DataAgeDisplay}" FontSize="11"
+                               Foreground="{Binding MarketDataStale, Converter={StaticResource StaleForeConverter}}"/>
+                </Border>
+
+                <!-- Connect button -->
+                <Button Grid.Column="5" Command="{Binding ConnectCommand}"
+                        Content="{Binding ConnectionStatus}" Width="120" Margin="4,0"
+                        Background="{Binding IsConnected, Converter={StaticResource ConnBrushConverter}}"/>
+
+                <!-- Hotkeys armed indicator -->
+                <Border Grid.Column="6" CornerRadius="3" Padding="6,2" Margin="4,0"
+                        Background="{Binding HotkeysArmed, Converter={StaticResource HotkeyBrushConverter}}"
+                        ToolTip="Click to toggle hotkeys" Cursor="Hand"
+                        MouseLeftButtonUp="HotkeyIndicator_Click">
+                    <TextBlock Text="{Binding HotkeysArmed, Converter={StaticResource HotkeyLabelConverter}}"
+                               FontWeight="Bold" Foreground="White" FontSize="11"/>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- BOTTOM: Activity log + toast -->
+        <Border DockPanel.Dock="Bottom" Background="#FF0A0A0A" Height="140"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <!-- Toast display -->
+                <Border DockPanel.Dock="Top" Padding="8,2" Background="#FF161616">
+                    <TextBlock Text="{Binding LastToast}" FontSize="12" FontWeight="Bold"
+                               Foreground="{StaticResource AccentBrush}"/>
+                </Border>
+
+                <ListBox ItemsSource="{Binding ActivityLog}"
+                         Background="Transparent" BorderThickness="0"
+                         Foreground="{StaticResource SecondaryForeBrush}"
+                         FontFamily="Consolas" FontSize="11"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         x:Name="ActivityListBox"/>
+            </DockPanel>
+        </Border>
+
+        <!-- MAIN LAYOUT -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260"/>   <!-- Position + Order ticket -->
+                <ColumnDefinition Width="*"/>     <!-- DOM -->
+                <ColumnDefinition Width="220"/>   <!-- Hot buttons -->
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT PANEL: Position + Order ticket + Emergency -->
+            <DockPanel Grid.Column="0" Background="{StaticResource PanelBrush}"
+                       Margin="0,0,1,0">
+
+                <!-- Emergency kill switch -->
+                <Border DockPanel.Dock="Bottom" Background="#FF300000" Padding="4">
+                    <Button x:Name="KillSwitchButton"
+                            Click="KillSwitch_Click"
+                            Background="#FFDD0000" Foreground="White"
+                            FontWeight="Bold" FontSize="14" Height="40"
+                            Content="⚠ KILL SWITCH — CANCEL + FLATTEN"/>
+                </Border>
+
+                <!-- Position panel -->
+                <views:PositionView DockPanel.Dock="Top" DataContext="{Binding PositionViewModel}"
+                                    Height="180"/>
+
+                <!-- Share size -->
+                <Border DockPanel.Dock="Top" Padding="8,4"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Size:" VerticalAlignment="Center" Width="35"/>
+                        <TextBox Width="70" Text="{Binding ShareSize, UpdateSourceTrigger=PropertyChanged}"
+                                 x:Name="ShareSizeBox"/>
+                        <Button Content="100" Width="40" Margin="4,0,0,0"
+                                Click="SizePreset_Click" Tag="100"/>
+                        <Button Content="200" Width="40" Margin="2,0"
+                                Click="SizePreset_Click" Tag="200"/>
+                        <Button Content="500" Width="40"
+                                Click="SizePreset_Click" Tag="500"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Order ticket -->
+                <views:OrderTicketView DataContext="{Binding OrderTicketViewModel}"/>
+            </DockPanel>
+
+            <!-- CENTER: DOM -->
+            <views:DomView Grid.Column="1" DataContext="{Binding DomViewModel}"
+                           DomPriceLevelClicked="OnDomPriceLevelClicked"
+                           DomContextMenuRequested="OnDomContextMenu"/>
+
+            <!-- RIGHT: Hot buttons -->
+            <views:HotButtonsView Grid.Column="2" DataContext="{Binding HotButtonsViewModel}"
+                                  HotButtonExecuted="OnHotButtonExecuted"/>
+        </Grid>
+    </DockPanel>
+</Window>

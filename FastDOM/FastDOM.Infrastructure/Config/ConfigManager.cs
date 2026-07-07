@@ -13,6 +13,7 @@ public class ConfigManager
     {
         WriteIndented = true,
         PropertyNameCaseInsensitive = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
     public AppSettings AppSettings { get; private set; } = new();
@@ -24,10 +25,18 @@ public class ConfigManager
     public ConfigManager(ILogger<ConfigManager> logger, string? configDir = null)
     {
         _logger = logger;
-        _configDir = configDir ?? Path.Combine(
+        _configDir = configDir ?? ResolveConfigDir();
+        Directory.CreateDirectory(_configDir);
+    }
+
+    private static string ResolveConfigDir()
+    {
+        var exeDir = AppContext.BaseDirectory;
+        if (File.Exists(Path.Combine(exeDir, "appsettings.json")))
+            return exeDir;
+        return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "FastDOM");
-        Directory.CreateDirectory(_configDir);
     }
 
     public void LoadAll()

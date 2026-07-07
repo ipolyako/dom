@@ -110,12 +110,17 @@ public partial class MainWindow : Window
 
     private async void SymbolComboBox_KeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && !string.IsNullOrWhiteSpace(_vm.SelectedSymbol))
-        {
-            _vm.SelectedSymbol = _vm.SelectedSymbol.Trim().ToUpperInvariant();
-            await _vm.ChangeSymbolCommand.ExecuteAsync(null);
-            SymbolComboBox.MoveFocus(new System.Windows.Input.TraversalRequest(System.Windows.Input.FocusNavigationDirection.Next));
-        }
+        if (e.Key != Key.Enter) return;
+        var text = SymbolComboBox.Text?.Trim().ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(text)) return;
+        e.Handled = true;
+        if (!_vm.SymbolList.Contains(text))
+            _vm.SymbolList.Add(text);
+        _symbolSelectionUpdating = true;
+        _vm.SelectedSymbol = text;
+        _symbolSelectionUpdating = false;
+        await _vm.ChangeSymbolCommand.ExecuteAsync(null);
+        SymbolComboBox.MoveFocus(new System.Windows.Input.TraversalRequest(System.Windows.Input.FocusNavigationDirection.Next));
     }
 
     private void HotkeyIndicator_Click(object sender, MouseButtonEventArgs e)

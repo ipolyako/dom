@@ -80,6 +80,13 @@
                        Foreground="{StaticResource AskBrush}"/>
             <TextBlock Grid.Column="4" Text="SELL" Style="{StaticResource PriceCell}"
                        Foreground="{StaticResource SellOrderBrush}" FontWeight="Bold"/>
+            <!-- Column separator lines -->
+            <Rectangle Grid.Column="1" Width="1" HorizontalAlignment="Left" Fill="#22FFFFFF" IsHitTestVisible="False"/>
+            <Rectangle Grid.Column="2" Width="1" HorizontalAlignment="Left" Fill="#22FFFFFF" IsHitTestVisible="False"/>
+            <Rectangle Grid.Column="3" Width="1" HorizontalAlignment="Left" Fill="#22FFFFFF" IsHitTestVisible="False"/>
+            <Rectangle Grid.Column="4" Width="1" HorizontalAlignment="Left" Fill="#22FFFFFF" IsHitTestVisible="False"/>
+            <!-- Header bottom line -->
+            <Rectangle Grid.Column="0" Grid.ColumnSpan="5" Height="1" VerticalAlignment="Bottom" Fill="#22FFFFFF" IsHitTestVisible="False"/>
         </Grid>
 
         <!-- DOM price ladder -->
@@ -168,6 +175,11 @@
                                                Foreground="#FFFF9090" VerticalAlignment="Center" Margin="2,0"/>
                                 </StackPanel>
                             </Border>
+
+                            <!-- Row grid line -->
+                            <Rectangle Grid.Column="0" Grid.ColumnSpan="5"
+                                       Height="1" VerticalAlignment="Bottom"
+                                       Fill="#18FFFFFF" IsHitTestVisible="False"/>
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

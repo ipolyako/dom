@@ -177,6 +177,7 @@ public partial class MainViewModel : ObservableObject
             QuoteDisplay = $"{q.Last:F2}  B:{q.Bid:F2} x {q.BidSize}  A:{q.Ask:F2} x {q.AskSize}" +
                            $"  Chg:{q.NetChange:+0.00;-0.00}  Vol:{q.Volume:N0}";
             MarketDataStale = q.IsStale(_config.RiskProfile.MarketDataStaleMs);
+            PositionViewModel.UpdateFromQuote(q.Last);
         });
     }
 

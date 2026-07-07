@@ -73,6 +73,12 @@ public partial class MainWindow : Window
     private void HotkeyIndicator_Click(object sender, MouseButtonEventArgs e)
         => _vm.ToggleHotkeysCommand.Execute(null);
 
+    private void HotkeySettings_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new HotkeySettingsWindow(_config.HotkeyConfig, _config) { Owner = this };
+        dlg.ShowDialog();
+    }
+
     private void SizePreset_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && int.TryParse(btn.Tag?.ToString(), out var size))

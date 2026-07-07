@@ -28,13 +28,9 @@ public class HotkeyService : IDisposable
     public void Arm() { IsArmed = true; _logger.LogInformation("Hotkeys ARMED"); }
     public void Disarm() { IsArmed = false; _logger.LogInformation("Hotkeys DISARMED"); }
 
-    /// <summary>
-    /// Call from WPF KeyDown handler. Returns the action type if a hotkey matched and fired.
-    /// </summary>
-    public string? ProcessKeyDown(KeyEventArgs e, bool isTextBoxFocused)
+    public string? ProcessKeyDown(KeyEventArgs e)
     {
         if (!IsArmed) return null;
-        if (isTextBoxFocused) return null;
 
         var gesture = BuildGestureString(e);
         var binding = _config.Bindings.FirstOrDefault(b =>
@@ -66,7 +62,7 @@ public class HotkeyService : IDisposable
         return binding.ActionType;
     }
 
-    private static string BuildGestureString(KeyEventArgs e)
+    public static string BuildGestureString(KeyEventArgs e)
     {
         var parts = new List<string>();
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");

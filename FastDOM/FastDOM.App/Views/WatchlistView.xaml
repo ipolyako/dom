@@ -1,0 +1,89 @@
+<UserControl x:Class="FastDOM.App.Views.WatchlistView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:conv="clr-namespace:FastDOM.App.Converters"
+             mc:Ignorable="d"
+             Background="{StaticResource PanelBrush}">
+    <DockPanel>
+        <!-- Header -->
+        <DockPanel DockPanel.Dock="Top" Background="#FF111111">
+            <TextBlock Text="WATCHLIST" FontWeight="Bold" FontSize="11" Padding="8,4"
+                       Foreground="{StaticResource SecondaryForeBrush}" VerticalAlignment="Center"/>
+        </DockPanel>
+
+        <!-- Add symbol input row -->
+        <Border DockPanel.Dock="Bottom" Padding="4,3"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="26"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" x:Name="NewSymbolBox"
+                         Text="{Binding NewSymbol, UpdateSourceTrigger=PropertyChanged}"
+                         FontFamily="Consolas" FontSize="11" Height="22"
+                         VerticalContentAlignment="Center"
+                         CharacterCasing="Upper"
+                         KeyDown="NewSymbol_KeyDown"
+                         Margin="0,0,2,0"/>
+                <Button Grid.Column="1" Content="+" Height="22"
+                        Command="{Binding AddSymbolCommand}"
+                        FontWeight="Bold" FontSize="13" Padding="0"/>
+            </Grid>
+        </Border>
+
+        <!-- Symbol rows -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Items}" x:Name="WatchlistItems">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,0" Height="22" Cursor="Hand"
+                              Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="50"/>
+                                <ColumnDefinition Width="48"/>
+                                <ColumnDefinition Width="18"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Row click → select symbol -->
+                            <Grid.InputBindings>
+                                <MouseBinding MouseAction="LeftClick"
+                                              Command="{Binding DataContext.SelectSymbolCommand,
+                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              CommandParameter="{Binding}"/>
+                            </Grid.InputBindings>
+
+                            <TextBlock Grid.Column="0" Text="{Binding DisplaySymbol}"
+                                       FontWeight="Bold" FontSize="11"
+                                       Padding="6,0" VerticalAlignment="Center"
+                                       ToolTip="{Binding Symbol}"/>
+
+                            <TextBlock Grid.Column="1" Text="{Binding LastDisplay}"
+                                       FontSize="11" TextAlignment="Right"
+                                       Foreground="{StaticResource LastBrush}"
+                                       VerticalAlignment="Center"/>
+
+                            <TextBlock Grid.Column="2" Text="{Binding ChangeDisplay}"
+                                       FontSize="10" TextAlignment="Right"
+                                       Padding="2,0" VerticalAlignment="Center"
+                                       Foreground="{Binding Change,
+                                                   Converter={StaticResource PnLBrushConverter}}"/>
+
+                            <Button Grid.Column="3" Content="×" Width="16" Height="16"
+                                    FontSize="11" Padding="0"
+                                    Background="Transparent" BorderThickness="0"
+                                    Foreground="{StaticResource SecondaryForeBrush}"
+                                    Cursor="Hand"
+                                    Command="{Binding DataContext.RemoveSymbolCommand,
+                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"/>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

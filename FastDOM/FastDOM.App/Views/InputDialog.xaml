@@ -1,0 +1,55 @@
+<Window x:Class="FastDOM.App.Views.InputDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FastDOM"
+        Width="320" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#FF1A1A1A"
+        Foreground="#FFE0E0E0"
+        ShowInTaskbar="False">
+
+    <StackPanel Margin="20,16,20,16">
+
+        <TextBlock x:Name="PromptLabel"
+                   Text="Enter value:"
+                   FontFamily="Consolas" FontSize="13"
+                   Foreground="#FFE0E0E0"
+                   Margin="0,0,0,10"/>
+
+        <TextBox x:Name="ValueBox"
+                 FontFamily="Consolas" FontSize="14"
+                 Background="#FF2E2E2E" Foreground="#FFFFD54F"
+                 BorderBrush="#FF404040" BorderThickness="1"
+                 CaretBrush="#FFFFD54F"
+                 Padding="6,4"
+                 KeyDown="ValueBox_KeyDown"
+                 TextChanged="ValueBox_TextChanged"/>
+
+        <TextBlock x:Name="ErrorLabel"
+                   Text=""
+                   FontFamily="Consolas" FontSize="10"
+                   Foreground="#FFF44336"
+                   Visibility="Collapsed"
+                   Margin="0,4,0,0"/>
+
+        <Grid Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" x:Name="OkButton"
+                    Content="OK" Height="28"
+                    Background="#FF003870" BorderBrush="#FF0060C0"
+                    FontFamily="Consolas" FontSize="12"
+                    Click="OK_Click" IsDefault="True"/>
+            <Button Grid.Column="2"
+                    Content="Cancel" Height="28"
+                    Background="#FF2A2A2A" BorderBrush="#FF404040"
+                    FontFamily="Consolas" FontSize="12"
+                    Click="Cancel_Click" IsCancel="True"/>
+        </Grid>
+
+    </StackPanel>
+</Window>

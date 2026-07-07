@@ -40,6 +40,10 @@
     <Color x:Key="ProfitColor">#FF4CAF50</Color>
     <Color x:Key="LossColor">#FFF44336</Color>
 
+    <!-- Brighter border color used for panel-level separators -->
+    <Color x:Key="PanelBorderColor">#FF545454</Color>
+    <SolidColorBrush x:Key="PanelBorderBrush" Color="{StaticResource PanelBorderColor}"/>
+
     <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}"/>
     <SolidColorBrush x:Key="PanelBrush" Color="{StaticResource PanelColor}"/>
     <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}"/>
@@ -254,6 +258,16 @@
         </Style.Triggers>
     </Style>
 
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="#FF2A2A2A"/>
+        <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="FontFamily" Value="Consolas"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Padding" Value="6,4"/>
+    </Style>
+
     <Style TargetType="ContextMenu">
         <Setter Property="Background" Value="#FF2A2A2A"/>
         <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
@@ -301,7 +315,65 @@
         <Setter Property="FontSize" Value="11"/>
     </Style>
 
+    <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background"       Value="#FF111111"/>
+        <Setter Property="Foreground"       Value="{StaticResource SecondaryForeBrush}"/>
+        <Setter Property="FontFamily"       Value="Consolas"/>
+        <Setter Property="FontSize"         Value="10"/>
+        <Setter Property="FontWeight"       Value="SemiBold"/>
+        <Setter Property="Padding"          Value="4,4"/>
+        <Setter Property="BorderBrush"      Value="{StaticResource BorderBrush}"/>
+        <Setter Property="BorderThickness"  Value="0,0,0,1"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+    </Style>
+
+    <Style TargetType="DataGridCell">
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding"         Value="0"/>
+        <Setter Property="Foreground"      Value="{StaticResource ForegroundBrush}"/>
+        <Setter Property="Background"      Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridCell">
+                    <Border Background="{TemplateBinding Background}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="#FF1A3A5A"/>
+                <Setter Property="Foreground" Value="#FFE0E0E0"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style TargetType="DataGridRow">
+        <Setter Property="Background" Value="Transparent"/>
+        <Style.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="#FF1A3A5A"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="#FF2A2A2A"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <Style TargetType="ScrollBar">
         <Setter Property="Background" Value="#FF1A1A1A"/>
+    </Style>
+
+    <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+        <Setter Property="FontFamily" Value="Consolas"/>
+    </Style>
+
+    <Style TargetType="Expander">
+        <Setter Property="Foreground" Value="{StaticResource SecondaryForeBrush}"/>
+        <Setter Property="FontFamily" Value="Consolas"/>
+        <Setter Property="FontSize"   Value="11"/>
     </Style>
 </ResourceDictionary>

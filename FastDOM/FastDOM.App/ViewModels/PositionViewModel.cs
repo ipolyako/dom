@@ -1,10 +1,23 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using FastDOM.Broker.Interfaces;
 using FastDOM.Core.Enums;
 using FastDOM.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace FastDOM.App.ViewModels;
+
+public partial class PositionRow : ObservableObject
+{
+    public string Symbol { get; init; } = "";
+    public string Side { get; init; } = "";   // "LONG" / "SHORT"
+    public int Qty { get; init; }
+    [ObservableProperty] private string _openPnL = "—";
+    [ObservableProperty] private decimal? _openPnLValue;
+    [ObservableProperty] private string _dayPnL = "—";
+    [ObservableProperty] private decimal? _dayPnLValue;
+}
 
 public partial class PositionViewModel : ObservableObject
 {
@@ -26,14 +39,20 @@ public partial class PositionViewModel : ObservableObject
     [ObservableProperty] private string _dayPnLDisplay = "—";
     [ObservableProperty] private decimal? _dayPnL;
 
+    public ObservableCollection<PositionRow> AllPositions { get; } = [];
     public Position? CurrentPosition { get; private set; }
     public AccountSummary? CurrentAccount { get; private set; }
+
+    public event Action<string>? SymbolSelected;
 
     public PositionViewModel(ILogger<PositionViewModel> logger, IBrokerClient broker)
     {
         _logger = logger;
         _broker = broker;
     }
+
+    [RelayCommand]
+    private void SelectSymbol(string symbol) => SymbolSelected?.Invoke(symbol);
 
     public async Task RefreshAsync(string accountId, string symbol)
     {
@@ -49,6 +68,7 @@ public partial class PositionViewModel : ObservableObject
             CurrentPosition = pos;
             Symbol = symbol;
             UpdateDisplay(pos);
+            RebuildAllPositions();
         }
         catch (Exception ex)
         {
@@ -64,6 +84,41 @@ public partial class PositionViewModel : ObservableObject
         UnrealizedPnL = pnl;
         PnLDisplay = FormatPnL(pnl);
         RefreshDayPnL();
+
+        // Update live row in AllPositions without rebuilding the whole collection
+        var row = AllPositions.FirstOrDefault(r => r.Symbol == Symbol);
+        if (row != null)
+        {
+            row.OpenPnL = FormatPnL(pnl);
+            row.OpenPnLValue = pnl;
+            var realized = CurrentAccount?.DailyRealizedPnL ?? 0m;
+            var dayVal = realized + pnl;
+            row.DayPnL = dayVal == 0m ? "—" : FormatPnL(dayVal);
+            row.DayPnLValue = dayVal == 0m ? null : dayVal;
+        }
+    }
+
+    private void RebuildAllPositions()
+    {
+        AllPositions.Clear();
+        if (CurrentAccount == null) return;
+        var realized = CurrentAccount.DailyRealizedPnL ?? 0m;
+        foreach (var pos in CurrentAccount.Positions.Values.Where(p => !p.IsFlat)
+                                .OrderBy(p => p.Symbol))
+        {
+            var pnl = pos.UnrealizedPnL;
+            var dayVal = realized + (pnl ?? 0m);
+            AllPositions.Add(new PositionRow
+            {
+                Symbol      = pos.Symbol,
+                Side        = pos.Side == PositionSide.Long ? "LONG" : "SHORT",
+                Qty         = pos.Quantity,  // signed: +100 long, -50 short
+                OpenPnL     = pnl.HasValue ? FormatPnL(pnl.Value) : "—",
+                OpenPnLValue = pnl,
+                DayPnL      = dayVal == 0m ? "—" : FormatPnL(dayVal),
+                DayPnLValue = dayVal == 0m ? null : dayVal,
+            });
+        }
     }
 
     private void UpdateDisplay(Position? pos)

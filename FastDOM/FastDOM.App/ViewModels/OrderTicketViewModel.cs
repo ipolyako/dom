@@ -24,6 +24,7 @@ public partial class OrderTicketViewModel : ObservableObject
     [ObservableProperty] private TimeInForce _timeInForce = TimeInForce.Day;
     [ObservableProperty] private bool _extendedHours;
     [ObservableProperty] private string _statusMessage = "";
+    [ObservableProperty] private decimal? _lastPrice;
 
     public List<OrderSide> OrderSides { get; } = [OrderSide.Buy, OrderSide.Sell];
 
@@ -40,6 +41,15 @@ public partial class OrderTicketViewModel : ObservableObject
         _orderService = orderService;
         _broker = broker;
     }
+
+    partial void OnOrderTypeChanged(OrderType value)
+    {
+        if (LimitPrice == null && LastPrice.HasValue && NeedsLimitPrice(value))
+            LimitPrice = LastPrice;
+    }
+
+    private static bool NeedsLimitPrice(OrderType t) =>
+        t is OrderType.Limit or OrderType.StopLimit or OrderType.MarketableLimit or OrderType.Bracket;
 
     public void PopulateFromDomClick(decimal price, OrderSide side, OrderType orderType)
     {

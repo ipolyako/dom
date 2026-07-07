@@ -1,4 +1,5 @@
 using System.Text.Json;
+using FastDOM.Core.Enums;
 using FastDOM.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -45,6 +46,7 @@ public class ConfigManager
     {
         BootstrapFromExamples();
         AppSettings = Load<AppSettings>("appsettings.json") ?? new AppSettings();
+        AppSettings.Mode = TradingMode.Simulation; // Always start in SIM — switch to live explicitly
         SchwabConfig = Load<SchwabConfig>("broker.schwab.json") ?? new SchwabConfig();
         AlpacaConfig = Load<AlpacaConfig>("alpaca.json") ?? new AlpacaConfig();
         RiskProfile = Load<RiskProfile>("risk.profile.json") ?? new RiskProfile();

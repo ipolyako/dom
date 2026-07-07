@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using FastDOM.App.Services;
 using FastDOM.App.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 using FastDOM.Broker.Interfaces;
 using FastDOM.Core.Enums;
 using FastDOM.Core.Models;
@@ -20,8 +21,8 @@ public partial class MainWindow : Window
     private readonly ConfigManager _config;
     private readonly IBrokerClient _broker;
     private readonly DomService _domService;
+    private readonly IServiceProvider _services;
     private bool _killSwitchPending;
-    private bool _symbolSelectionUpdating;
 
     public MainWindow(
         MainViewModel vm,
@@ -30,7 +31,8 @@ public partial class MainWindow : Window
         AuditLogger audit,
         ConfigManager config,
         IBrokerClient broker,
-        DomService domService)
+        DomService domService,
+        IServiceProvider services)
     {
         InitializeComponent();
         DataContext = _vm = vm;
@@ -40,6 +42,7 @@ public partial class MainWindow : Window
         _config = config;
         _broker = broker;
         _domService = domService;
+        _services = services;
 
         // Auto-scroll activity log — defer to Background priority so the ItemsControl
         // finishes processing CollectionChanged before ScrollIntoView triggers layout.
@@ -56,16 +59,11 @@ public partial class MainWindow : Window
         _vm.HotButtonsViewModel.ToastRequested += msg =>
             Dispatcher.Invoke(() => _vm.LastToast = msg);
 
-        // Sync ComboBox SelectedItem when SelectedSymbol changes from code (e.g. hotkey, connect)
-        // so the dropdown highlights the current item when opened.
+        // Keep the TextBox in sync when SelectedSymbol changes from code (position click, etc.)
         _vm.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(MainViewModel.SelectedSymbol) && !_symbolSelectionUpdating)
-            {
-                _symbolSelectionUpdating = true;
-                SymbolComboBox.SelectedItem = _vm.SelectedSymbol;
-                _symbolSelectionUpdating = false;
-            }
+            if (e.PropertyName == nameof(MainViewModel.SelectedSymbol))
+                SymbolTextBox.Text = _vm.SelectedSymbol;
         };
     }
 
@@ -77,8 +75,32 @@ public partial class MainWindow : Window
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
-        bool inTextBox = FocusManager.GetFocusedElement(this) is TextBox;
-        var action = _hotkeyService.ProcessKeyDown(e, inTextBox);
+        // Don't intercept while the user is typing in a text field
+        if (Keyboard.FocusedElement is TextBox) return;
+
+        var gesture = HotkeyService.BuildGestureString(e);
+
+        // 1. Hot button shortcuts take priority over fixed bindings (explicit user assignment wins)
+        var btn = _config.HotButtons.FirstOrDefault(b =>
+            b.IsEnabled &&
+            !string.IsNullOrWhiteSpace(b.KeyboardShortcut) &&
+            string.Equals(b.KeyboardShortcut, gesture, StringComparison.OrdinalIgnoreCase));
+        if (btn != null)
+        {
+            e.Handled = true;
+            _ = Task.Run(async () =>
+            {
+                var summary = await _broker.GetAccountSummaryAsync(_vm.SelectedAccountId);
+                summary.Positions.TryGetValue(_vm.SelectedSymbol, out var pos);
+                await _vm.HotButtonsViewModel.ExecuteButtonAsync(
+                    btn, _vm.SelectedSymbol, _vm.SelectedAccountId,
+                    _vm.ShareSize, _domService.CurrentQuote, pos);
+            });
+            return;
+        }
+
+        // 2. Fixed hotkey bindings (HotkeyConfig)
+        var action = _hotkeyService.ProcessKeyDown(e);
         if (action != null)
         {
             e.Handled = true;
@@ -86,41 +108,34 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void SymbolComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (_vm == null || _symbolSelectionUpdating) return;
-        try
-        {
-            if (e.AddedItems.Count > 0 && e.AddedItems[0] is string sym)
-            {
-                _symbolSelectionUpdating = true;
-                _vm.SelectedSymbol = sym;
-                _symbolSelectionUpdating = false;
+    private void SymbolTextBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        => ((TextBox)sender).SelectAll();
 
-                if (_vm.ChangeSymbolCommand.CanExecute(null))
-                    await _vm.ChangeSymbolCommand.ExecuteAsync(null);
-            }
-        }
-        catch (Exception ex)
+    private void SymbolTextBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var tb = (TextBox)sender;
+        if (!tb.IsKeyboardFocusWithin)
         {
-            _symbolSelectionUpdating = false;
-            _vm.LastToast = $"Symbol change error: {ex.Message}";
+            e.Handled = true;   // prevent caret repositioning
+            tb.Focus();
+            tb.SelectAll();
         }
     }
 
-    private async void SymbolComboBox_KeyDown(object sender, KeyEventArgs e)
+    private async void SymbolTextBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
-        var text = SymbolComboBox.Text?.Trim().ToUpperInvariant();
+        var text = SymbolTextBox.Text?.Trim().ToUpperInvariant();
         if (string.IsNullOrWhiteSpace(text)) return;
         e.Handled = true;
-        if (!_vm.SymbolList.Contains(text))
-            _vm.SymbolList.Add(text);
-        _symbolSelectionUpdating = true;
         _vm.SelectedSymbol = text;
-        _symbolSelectionUpdating = false;
         await _vm.ChangeSymbolCommand.ExecuteAsync(null);
-        SymbolComboBox.MoveFocus(new System.Windows.Input.TraversalRequest(System.Windows.Input.FocusNavigationDirection.Next));
+        // Select all so next keystroke immediately replaces the symbol
+        Dispatcher.InvokeAsync(() =>
+        {
+            SymbolTextBox.Focus();
+            SymbolTextBox.SelectAll();
+        }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private void HotkeyIndicator_Click(object sender, MouseButtonEventArgs e)
@@ -132,10 +147,26 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
     }
 
+    private void OnHotButtonSettingsRequested(object sender, RoutedEventArgs e)
+    {
+        var dlg = new HotButtonSettingsWindow(_config.HotButtons, _config) { Owner = this };
+        dlg.ShowDialog();
+        // Refresh the hot buttons panel so label/color changes appear immediately
+        _vm.HotButtonsViewModel.RefreshButtons();
+    }
+
     private void SizePreset_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && int.TryParse(btn.Tag?.ToString(), out var size))
             _vm.ShareSize = size;
+    }
+
+    private async void OnOrderTicketQuickAction(object sender, QuickActionEventArgs e)
+    {
+        var summary = await _broker.GetAccountSummaryAsync(_vm.SelectedAccountId);
+        summary.Positions.TryGetValue(_vm.SelectedSymbol, out var pos);
+        await _vm.HotButtonsViewModel.ExecuteActionAsync(
+            e.Action, _vm.SelectedSymbol, _vm.SelectedAccountId, _vm.ShareSize, _domService.CurrentQuote, pos);
     }
 
     private async void KillSwitch_Click(object sender, RoutedEventArgs e)
@@ -244,6 +275,15 @@ public partial class MainWindow : Window
             _vm.ShareSize,
             _vm.DomViewModel.Rows.FirstOrDefault() != null ? null : null,
             pos);
+    }
+
+    private void OpenOptionsChain_Click(object sender, RoutedEventArgs e)
+    {
+        var optVm = _services.GetRequiredService<OptionsChainViewModel>();
+        optVm.Underlying = _vm.SelectedSymbol;
+        optVm.LastPrice  = _domService.CurrentQuote?.Last ?? 0m;
+        var dlg = new OptionsChainWindow(optVm) { Owner = this };
+        dlg.Show();
     }
 
     protected override void OnClosed(EventArgs e)

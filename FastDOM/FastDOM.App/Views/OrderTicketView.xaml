@@ -80,7 +80,30 @@
             </Grid>
 
             <TextBlock Text="{Binding StatusMessage}" FontSize="11" TextWrapping="Wrap"
-                       Foreground="{StaticResource AccentBrush}" Margin="0,4,0,0"/>
+                       Foreground="{StaticResource AccentBrush}" Margin="0,2,0,4"/>
+
+            <!-- Quick action buttons -->
+            <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,4,0,0">
+                <StackPanel>
+                    <!-- Buy row -->
+                    <UniformGrid Rows="1" Columns="3" Margin="0,0,0,2">
+                        <Button Content="Buy Mkt" Tag="BuyMarket"  Click="QuickAction_Click" Background="#1B5E20" Foreground="White" Margin="1" FontSize="10" Height="24"/>
+                        <Button Content="Buy Ask" Tag="BuyAsk"     Click="QuickAction_Click" Background="#2E7D32" Foreground="White" Margin="1" FontSize="10" Height="24"/>
+                        <Button Content="Buy Bid" Tag="BuyBid"     Click="QuickAction_Click" Background="#388E3C" Foreground="White" Margin="1" FontSize="10" Height="24"/>
+                    </UniformGrid>
+                    <!-- Sell row -->
+                    <UniformGrid Rows="1" Columns="3" Margin="0,0,0,2">
+                        <Button Content="Sell Mkt" Tag="SellMarket" Click="QuickAction_Click" Background="#B71C1C" Foreground="White" Margin="1" FontSize="10" Height="24"/>
+                        <Button Content="Sell Ask" Tag="SellAsk"    Click="QuickAction_Click" Background="#D32F2F" Foreground="White" Margin="1" FontSize="10" Height="24"/>
+                        <Button Content="Sell Bid" Tag="SellBid"    Click="QuickAction_Click" Background="#C62828" Foreground="White" Margin="1" FontSize="10" Height="24"/>
+                    </UniformGrid>
+                    <!-- Flatten + Cancel All -->
+                    <UniformGrid Rows="1" Columns="2">
+                        <Button Content="Flatten"    Tag="Flatten"   Click="QuickAction_Click" Background="#E65100" Foreground="White" Margin="1" FontSize="10" Height="24"/>
+                        <Button Content="Cancel All" Tag="CancelAll" Click="QuickAction_Click" Background="#212121" Foreground="White" Margin="1" FontSize="10" Height="24"/>
+                    </UniformGrid>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </Border>
 </UserControl>

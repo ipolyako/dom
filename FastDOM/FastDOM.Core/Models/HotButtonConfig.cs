@@ -8,6 +8,8 @@ public class HotButtonConfig
     public required string Label { get; set; }
     public string Color { get; set; } = "#2196F3";
     public string TextColor { get; set; } = "#FFFFFF";
+    // Script takes precedence over Action when set.
+    public string? Script { get; set; }
     public required HotButtonAction Action { get; set; }
     public QuantityRule QuantityRule { get; set; } = new();
     public PriceRule PriceRule { get; set; } = new();
@@ -24,6 +26,7 @@ public enum HotButtonAction
     BuyMarket, SellMarket,
     BuyAsk, SellBid, BuyBid, SellAsk,
     BuyLimit, SellLimit,
+    BuyMarketableLimit, SellMarketableLimit,
     Flatten, Reverse,
     CancelAll, CancelBuys, CancelSells, CancelSymbol,
     SetStop, SetTarget, MoveStopToBreakeven,
@@ -36,7 +39,7 @@ public enum HotButtonAction
 public class QuantityRule
 {
     public QuantityRuleType Type { get; set; } = QuantityRuleType.Fixed;
-    public int FixedShares { get; set; } = 100;
+    public int FixedShares { get; set; } = 0; // 0 = use global ShareSize
     public decimal DollarAmount { get; set; }
     public decimal PercentOfPosition { get; set; }
     public decimal PercentOfBuyingPower { get; set; }

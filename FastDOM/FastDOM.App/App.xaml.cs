@@ -4,6 +4,7 @@ using FastDOM.App.Services;
 using FastDOM.App.ViewModels;
 using FastDOM.App.Views;
 using FastDOM.Broker;
+using FastDOM.Broker.Alpaca.Client;
 using FastDOM.Broker.Interfaces;
 using FastDOM.Broker.Proxies;
 using FastDOM.Core.Enums;
@@ -25,6 +26,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
         ConfigureLogging();
 
         DispatcherUnhandledException += (_, ex) =>
@@ -123,6 +125,7 @@ public partial class App : Application
         services.AddSingleton<OrderService>();
         services.AddSingleton<DomService>();
         services.AddSingleton<HotkeyService>();
+        services.AddSingleton<ScriptEngine>();
 
         // ViewModels
         services.AddTransient<MainViewModel>();
@@ -130,6 +133,18 @@ public partial class App : Application
         services.AddTransient<PositionViewModel>();
         services.AddTransient<HotButtonsViewModel>();
         services.AddTransient<OrderTicketViewModel>();
+        services.AddSingleton<WatchlistViewModel>();
+
+        // Options
+        services.AddSingleton<AlpacaOptionsClient>(sp =>
+        {
+            var cfg = sp.GetRequiredService<ConfigManager>();
+            return new AlpacaOptionsClient(
+                sp.GetRequiredService<ILogger<AlpacaOptionsClient>>(),
+                cfg.AlpacaConfig);
+        });
+        services.AddSingleton<IOptionsDataProvider>(sp => sp.GetRequiredService<AlpacaOptionsClient>());
+        services.AddTransient<OptionsChainViewModel>();
 
         // Views
         services.AddTransient<MainWindow>();

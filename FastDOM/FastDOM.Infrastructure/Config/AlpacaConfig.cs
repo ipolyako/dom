@@ -10,7 +10,9 @@ public class AlpacaConfig
         ? "https://paper-api.alpaca.markets/v2"
         : "https://api.alpaca.markets/v2";
 
-    public string MarketDataBase => "https://data.alpaca.markets/v2";
+    public string MarketDataBase   => "https://data.alpaca.markets/v2";
+    public string OptionsDataBase  => "https://data.alpaca.markets/v1beta1";
+    public string OptionsBrokerBase => TraderApiBase;
 
     public string StreamBase     => IsPaper
         ? "wss://paper-api.alpaca.markets/stream"

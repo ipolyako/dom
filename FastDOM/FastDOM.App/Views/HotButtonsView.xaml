@@ -6,9 +6,19 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              Background="{StaticResource PanelBrush}">
     <DockPanel>
-        <TextBlock DockPanel.Dock="Top" Text="HOT BUTTONS" FontWeight="Bold"
-                   FontSize="11" Padding="8,4" Background="#FF111111"
-                   Foreground="{StaticResource SecondaryForeBrush}"/>
+        <DockPanel DockPanel.Dock="Top" Background="#FF111111">
+            <Button DockPanel.Dock="Right" Content="⚙" Width="24" Height="24"
+                    FontSize="13" Padding="0" Margin="2"
+                    ToolTip="Edit hot buttons"
+                    Click="HotButtonSettings_Click"
+                    Background="Transparent" BorderThickness="0"
+                    Foreground="{StaticResource SecondaryForeBrush}"
+                    Cursor="Hand"/>
+            <TextBlock Text="HOT BUTTONS" FontWeight="Bold"
+                       FontSize="11" Padding="8,4"
+                       Foreground="{StaticResource SecondaryForeBrush}"
+                       VerticalAlignment="Center"/>
+        </DockPanel>
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <ItemsControl ItemsSource="{Binding Buttons}" Margin="4">

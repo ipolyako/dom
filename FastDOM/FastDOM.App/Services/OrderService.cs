@@ -183,6 +183,17 @@ public class OrderService
             await CancelOrderAsync(accountId, o.BrokerOrderId!);
     }
 
+    public async Task CancelSideForSymbolAsync(string accountId, string symbol, OrderSide side)
+    {
+        var working = _activeOrders.Values
+            .Where(o => o.AccountId == accountId && o.Symbol == symbol
+                        && o.Side == side && o.IsWorking)
+            .DistinctBy(o => o.BrokerOrderId ?? o.ClientOrderId)
+            .ToList();
+        foreach (var o in working)
+            await CancelOrderAsync(accountId, o.BrokerOrderId!);
+    }
+
     public async Task SyncOrdersAsync(string accountId)
     {
         var orders = await _broker.SyncOrdersAsync(accountId);

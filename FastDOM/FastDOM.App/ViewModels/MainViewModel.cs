@@ -13,7 +13,10 @@ using Microsoft.Extensions.Logging;
 
 namespace FastDOM.App.ViewModels;
 
-public record TradingModeOption(string Label, TradingMode Mode);
+public record TradingModeOption(string Label, TradingMode Mode)
+{
+    public override string ToString() => Label;
+}
 
 public partial class MainViewModel : ObservableObject
 {
@@ -40,9 +43,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _quoteDisplay = "—";
     [ObservableProperty] private string _dataAgeDisplay = "—";
     [ObservableProperty] private bool _marketDataStale;
+    [ObservableProperty] private string _buyingPowerDisplay = "—";
+    [ObservableProperty] private string _buyingPowerTooltip = "";
 
-    public ObservableCollection<string> SymbolList { get; } =
-        new(["SPY", "QQQ", "NVDA", "TSLA", "TQQQ", "SQQQ", "AAPL", "MSFT"]);
     public ObservableCollection<AccountInfo> Accounts { get; } = [];
     public ObservableCollection<string> ActivityLog { get; } = [];
 
@@ -61,6 +64,7 @@ public partial class MainViewModel : ObservableObject
     public PositionViewModel PositionViewModel { get; }
     public HotButtonsViewModel HotButtonsViewModel { get; }
     public OrderTicketViewModel OrderTicketViewModel { get; }
+    public WatchlistViewModel WatchlistViewModel { get; }
 
     public MainViewModel(
         ILogger<MainViewModel> logger,
@@ -75,7 +79,8 @@ public partial class MainViewModel : ObservableObject
         DomViewModel domVm,
         PositionViewModel posVm,
         HotButtonsViewModel hotVm,
-        OrderTicketViewModel ticketVm)
+        OrderTicketViewModel ticketVm,
+        WatchlistViewModel watchlistVm)
     {
         _logger = logger;
         _broker = broker;
@@ -91,6 +96,19 @@ public partial class MainViewModel : ObservableObject
         PositionViewModel = posVm;
         HotButtonsViewModel = hotVm;
         OrderTicketViewModel = ticketVm;
+        WatchlistViewModel = watchlistVm;
+
+        watchlistVm.SymbolSelected += sym =>
+        {
+            SelectedSymbol = sym;
+            _ = ChangeSymbolCommand.ExecuteAsync(null);
+        };
+
+        posVm.SymbolSelected += sym =>
+        {
+            SelectedSymbol = sym;
+            _ = ChangeSymbolCommand.ExecuteAsync(null);
+        };
 
         var initialMode = config.AppSettings.Mode;
         _selectedMode = ModeOptions.FirstOrDefault(m => m.Mode == initialMode) ?? ModeOptions[0];
@@ -159,8 +177,42 @@ public partial class MainViewModel : ObservableObject
             OrderTicketViewModel.AccountId = SelectedAccountId;
         }
 
+        await RefreshBuyingPowerAsync();
         await ChangeSymbolAsync();
         LogActivity($"Connected. Mode: {TradingModeLabel}");
+    }
+
+    private async Task RefreshBuyingPowerAsync()
+    {
+        if (string.IsNullOrEmpty(SelectedAccountId)) return;
+        try
+        {
+            var summary = await _broker.GetAccountSummaryAsync(SelectedAccountId);
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                var bp   = summary.BuyingPower;
+                var dtbp = summary.DayTradingBuyingPower;
+                if (dtbp.HasValue && dtbp > 0)
+                {
+                    BuyingPowerDisplay = $"${dtbp.Value:N0}";
+                    BuyingPowerTooltip = $"Day Trading BP: ${dtbp.Value:N2}"
+                        + (bp.HasValue ? $"\nBuying Power: ${bp.Value:N2}" : "")
+                        + (summary.NetLiquidation.HasValue ? $"\nEquity: ${summary.NetLiquidation.Value:N2}" : "");
+                }
+                else if (bp.HasValue && bp > 0)
+                {
+                    BuyingPowerDisplay = $"${bp.Value:N0}";
+                    BuyingPowerTooltip = $"Buying Power: ${bp.Value:N2}"
+                        + (summary.NetLiquidation.HasValue ? $"\nEquity: ${summary.NetLiquidation.Value:N2}" : "");
+                }
+                else
+                {
+                    BuyingPowerDisplay = "—";
+                    BuyingPowerTooltip = "";
+                }
+            });
+        }
+        catch { /* non-critical — buying power display stays at last value */ }
     }
 
     [RelayCommand]
@@ -171,6 +223,7 @@ public partial class MainViewModel : ObservableObject
         await _domService.SubscribeAsync(SelectedSymbol);
         DomViewModel.Symbol = SelectedSymbol;
         await PositionViewModel.RefreshAsync(SelectedAccountId, SelectedSymbol);
+        await WatchlistViewModel.ResubscribeAsync();
         LogActivity($"Subscribed to {SelectedSymbol}");
     }
 
@@ -185,7 +238,8 @@ public partial class MainViewModel : ObservableObject
     public async Task ExecuteHotkeyActionAsync(string actionType)
     {
         LogActivity($"Hotkey: {actionType}");
-        await HotButtonsViewModel.ExecuteActionAsync(actionType, SelectedSymbol, SelectedAccountId, ShareSize);
+        await HotButtonsViewModel.ExecuteActionAsync(actionType, SelectedSymbol, SelectedAccountId,
+            ShareSize, _domService.CurrentQuote);
     }
 
     private void OnOrderStateChanged(OrderState state)
@@ -199,7 +253,10 @@ public partial class MainViewModel : ObservableObject
             DomViewModel.RefreshOrders(_orderService.ActiveOrders.Values);
 
             if (state.Status is OrderStatus.Filled or OrderStatus.PartiallyFilled)
+            {
                 _ = PositionViewModel.RefreshAsync(SelectedAccountId, state.Symbol);
+                _ = RefreshBuyingPowerAsync();
+            }
         });
     }
 
@@ -212,20 +269,33 @@ public partial class MainViewModel : ObservableObject
                            $"  Chg:{q.NetChange:+0.00;-0.00}  Vol:{q.Volume:N0}";
             MarketDataStale = q.IsStale(_config.RiskProfile.MarketDataStaleMs);
             PositionViewModel.UpdateFromQuote(q.Last);
+            OrderTicketViewModel.LastPrice = q.Last;
         });
     }
+
+    public string SelectedAccountDisplay =>
+        string.IsNullOrEmpty(SelectedAccountId) ? "—"
+        : SelectedAccountId.Length <= 12
+            ? SelectedAccountId
+            : SelectedAccountId.Substring(0, 4) + "···" + SelectedAccountId.Substring(SelectedAccountId.Length - 4);
 
     partial void OnSelectedAccountIdChanged(string value)
     {
         DomViewModel.CurrentAccountId = value;
         OrderTicketViewModel.AccountId = value;
         PositionViewModel.AccountId = value;
+        OnPropertyChanged(nameof(SelectedAccountDisplay));
     }
 
     partial void OnSelectedSymbolChanged(string value)
     {
         OrderTicketViewModel.Symbol = value;
         DomViewModel.Symbol = value;
+    }
+
+    partial void OnShareSizeChanged(int value)
+    {
+        OrderTicketViewModel.Quantity = value;
     }
 
     private void UpdateDataAge()

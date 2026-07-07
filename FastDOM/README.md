@@ -1,6 +1,6 @@
 # FastDOM — Execution Terminal
 
-A lightweight Windows execution panel for active trading via the Schwab Trader API. Replaces DAS Trader / TOS Active Trader / NinjaTrader DOM for fast order entry.
+A lightweight Windows execution panel for active trading. Supports Schwab Trader API and Alpaca Markets. Replaces DAS Trader / TOS Active Trader / NinjaTrader DOM for fast order entry.
 
 **This is an execution tool, not a charting platform.**
 
@@ -9,15 +9,17 @@ A lightweight Windows execution panel for active trading via the Schwab Trader A
 ## Features
 
 - Visual DOM (Depth of Market) price ladder with clickable order entry
-- Hot buttons for common actions (Buy MKT, Sell MKT, Flatten, Reverse, etc.)
-- Global/local hotkeys for fast keyboard trading
-- Schwab Trader API integration (OAuth 2.0, live order placement)
-- Three modes: Simulation, SchwabSandbox (blocks orders), SchwabLive
+- Hot buttons for common actions (Buy MKT, Sell MKT, Flatten, Reverse, etc.) — fully configurable
+- Global hotkeys for fast keyboard trading
+- **Alpaca Paper and Live** trading (key/secret auth, no OAuth required)
+- **Schwab Trader API** integration (OAuth 2.0 via thinkorswim Derby token source)
+- Four modes selectable at runtime: Simulation, Schwab Live, Alpaca Paper, Alpaca Live
+- Account positions table with live P/L, clickable rows load symbol into DOM
 - Full risk management: max shares, max notional, daily loss lockout, kill switch
 - Order lifecycle tracking: draft → validating → submitting → accepted → filled
-- DPAPI-protected token storage (never stores raw secrets in plaintext)
+- DPAPI-protected token storage for Schwab (never stores raw secrets in plaintext)
 - Rotating audit log (JSONL) + human-readable activity log
-- Dark theme, always-on-top, compact mode
+- Dark theme, compact layout
 
 ---
 
@@ -41,30 +43,46 @@ A lightweight Windows execution panel for active trading via the Schwab Trader A
 ```bash
 git clone https://github.com/ipolyako/dom
 cd dom/FastDOM
-dotnet publish FastDOM.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+dotnet publish FastDOM.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 publish\FastDOM.exe
 ```
 
+> **Note:** `IncludeNativeLibrariesForSelfExtract=true` is required or the app crashes at startup.
+> The `clidriver\` folder (IBM DB2 CLI driver for Schwab Derby tokens) is included automatically in
+> the publish output and must stay next to `FastDOM.exe`.
+
 The app starts in **Simulation mode** on first launch — no broker connection or config setup required. Config files are auto-created next to the exe from the bundled examples.
 
-To switch to live trading, edit the JSON files next to `FastDOM.exe` (see **Config Files** below).
+To switch to Alpaca or Schwab, edit the JSON files next to `FastDOM.exe` (see **Config Files** below).
 
 ---
 
+## Alpaca Setup
+
+See `docs/AlpacaIntegration.md` for the complete guide.
+
+**Summary:**
+1. Create an account at [alpaca.markets](https://alpaca.markets)
+2. Generate API keys (paper or live) from the Alpaca dashboard
+3. Set `ApiKey`, `ApiSecret`, and `IsPaper` in `alpaca.json`
+4. Select **Alpaca Paper** or **Alpaca Live** from the mode dropdown and click Connect
+
+No OAuth flow, no certificate setup — key/secret auth only.
+
 ## Schwab Live Setup
 
-See `SchwabIntegration.md` for the complete setup guide.
+See `docs/SchwabIntegration.md` for the complete setup guide.
 
 **Summary:**
 1. Register app at developer.schwab.com (select both API products)
 2. Set callback URL to `https://127.0.0.1:8182`
-3. Wait for "Ready for use" status (can take several days)
+3. Wait for "Ready for use" status (may take several days)
 4. Set `appKey` in `broker.schwab.json`
-5. Run the app and click Connect — it opens a browser for OAuth login
-6. App Secret is stored via DPAPI (Windows Credential protection)
-7. Change `mode` in `appsettings.json` to `SchwabLive`
-8. Load a risk profile with `liveTradingEnabled: true`
-9. Read the **Before Live Trading** safety checklist
+5. Ensure thinkorswim is installed and logged in (Derby token source)
+6. Configure `token.source.json` with the Derby DB path
+7. Run the app and select **Schwab Live** from the mode dropdown
+8. App Secret is stored via DPAPI (Windows Credential protection)
+9. Load a risk profile with `liveTradingEnabled: true`
 
 ---
 
@@ -73,13 +91,14 @@ See `SchwabIntegration.md` for the complete setup guide.
 ```
 FastDOM.App/            WPF UI, views, viewmodels, app shell
 FastDOM.Core/           Domain models, order types, state machines
-FastDOM.Broker/         Broker interfaces + MockBrokerClient
-FastDOM.Broker.Schwab/  Schwab OAuth + order placement + streaming
+FastDOM.Broker/         Broker interfaces, MockBrokerClient, runtime proxies
+FastDOM.Broker.Schwab/  Schwab OAuth + Derby token source + order placement + streaming
+FastDOM.Broker.Alpaca/  Alpaca broker client + market data client
 FastDOM.MarketData/     Market data interfaces + MockMarketDataClient
 FastDOM.Infrastructure/ Config, logging, DPAPI secure storage
 FastDOM.Tests/          Unit + integration tests
 config-examples/        Sample JSON config files
-docs/                   Architecture, Schwab integration, risk docs
+docs/                   Architecture, integration guides, risk docs
 ```
 
 ---
@@ -90,26 +109,29 @@ Stored next to `FastDOM.exe` (auto-created on first run from `*.example.json` te
 
 | File | Purpose |
 |------|---------|
-| `appsettings.json` | App mode, UI settings, defaults |
+| `appsettings.json` | App mode, default symbol, default share size |
+| `alpaca.json` | Alpaca API key, secret, paper/live flag |
 | `broker.schwab.json` | Schwab App Key and callback URL |
+| `token.source.json` | Derby DB path for Schwab thinkorswim token reading |
 | `risk.profile.json` | Risk limits and safety settings |
 | `hotkeys.json` | Keyboard shortcut bindings |
 | `hotbuttons.json` | Hot button panel configuration |
-| `layout.json` | Window position and layout |
 
-Secrets (App Secret, tokens) are stored via DPAPI — never in JSON files.
+Schwab App Secret and OAuth tokens are stored via DPAPI — never in JSON files.
+Alpaca API keys are stored in `alpaca.json` — secure the file with filesystem permissions.
 
 ---
 
 ## Known Limitations
 
-- Schwab does NOT offer a public sandbox/paper trading API. "SchwabSandbox" mode in FastDOM connects to the live API but blocks all order submissions.
-- Level 2 depth is available via Schwab's streaming WebSocket (`NYSE_BOOK`, `NASDAQ_BOOK`), but availability depends on your Schwab account data permissions.
-- Refresh tokens expire after 7 days — you must re-authenticate after that.
-- DOM drag-and-drop order moving is functional but drag detection requires the order marker to be clicked precisely.
-- This is a retail execution terminal. Network latency to Schwab's servers dominates — this is not HFT infrastructure.
-- Bracket orders, OCO, and OSO are confirmed supported by the Schwab API.
-- `previewOrder` endpoint exists (`POST /trader/v1/accounts/{hash}/previewOrder`) — not yet wired in UI.
+- Schwab does NOT offer a public sandbox/paper trading API. Use Alpaca Paper for paper trading.
+- Schwab Level 2 depth (`NYSE_BOOK`, `NASDAQ_BOOK`) availability depends on your account data permissions.
+- Schwab refresh tokens expire after 7 days — re-authentication required via thinkorswim login.
+- Alpaca market data uses the IEX feed by default (free tier); may be delayed ~15 min. SIP feed requires a funded live account.
+- Alpaca does not provide Level 2 order book data — DOM shows Level 1 (best bid/ask) only.
+- DOM drag-and-drop order moving requires the order marker to be clicked precisely.
+- This is a retail execution terminal — network latency to broker servers dominates. Not HFT infrastructure.
+- `clidriver\` must remain next to `FastDOM.exe` — see `docs/BuildInstructions.md`.
 
 ---
 

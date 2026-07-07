@@ -1,4 +1,3 @@
-using IBM.Data.Db2;
 using FastDOM.Infrastructure.Config;
 using Microsoft.Extensions.Logging;
 
@@ -21,80 +20,26 @@ public class DerbyTokenProvider
     {
         _logger = logger;
         _cfg = cfg;
-        EnsureIbmHome();
     }
 
-    private static void EnsureIbmHome()
+    public Task<DerbyTokenData> GetTokenDataAsync(CancellationToken ct = default)
     {
-        // IBM driver requires IBM_DB_HOME to point to the clidriver folder
-        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("IBM_DB_HOME")))
-        {
-            var clidriver = Path.Combine(AppContext.BaseDirectory, "clidriver");
-            if (Directory.Exists(clidriver))
-            {
-                Environment.SetEnvironmentVariable("IBM_DB_HOME", clidriver);
-                var path = Environment.GetEnvironmentVariable("PATH") ?? "";
-                var bin  = Path.Combine(clidriver, "bin");
-                if (!path.Contains(bin, StringComparison.OrdinalIgnoreCase))
-                    Environment.SetEnvironmentVariable("PATH", $"{bin};{path}");
-            }
-        }
-    }
-
-    public async Task<DerbyTokenData> GetTokenDataAsync(CancellationToken ct = default)
-    {
-        var connStr = $"Server={_cfg.Host}:{_cfg.Port};Database={_cfg.Database};" +
-                      $"UID={_cfg.User};PWD={_cfg.Password};";
-
-        _logger.LogInformation("Fetching Schwab token from Derby {Host}:{Port}/{Db}",
-            _cfg.Host, _cfg.Port, _cfg.Database);
-
-        return await Task.Run(() =>
-        {
-            using var conn = new DB2Connection(connStr);
-            conn.Open();
-
-            // Read appKey, appSecret, accountHash from AUTHREF
-            string appKey = "", appSecret = "", accountHash = "";
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText =
-                    $"SELECT {_cfg.AppKeyColumn}, {_cfg.AppSecretColumn}, {_cfg.AccountHashColumn} " +
-                    $"FROM {_cfg.Schema}.{_cfg.AuthRefTable} FETCH FIRST 1 ROWS ONLY";
-                using var r = cmd.ExecuteReader();
-                if (!r.Read())
-                    throw new InvalidOperationException($"No rows in {_cfg.Schema}.{_cfg.AuthRefTable}");
-                appKey      = r.GetString(0);
-                appSecret   = r.GetString(1);
-                accountHash = r.GetString(2);
-            }
-
-            // Read refresh token from TOKEN keyed by appKey
-            string refreshToken = "";
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText =
-                    $"SELECT {_cfg.RefreshTokenColumn} FROM {_cfg.Schema}.{_cfg.TokenTable} " +
-                    $"WHERE {_cfg.AppKeyColumn} = ? FETCH FIRST 1 ROWS ONLY";
-                var p = cmd.CreateParameter();
-                p.Value = appKey;
-                cmd.Parameters.Add(p);
-                using var r = cmd.ExecuteReader();
-                if (!r.Read())
-                    throw new InvalidOperationException($"No token row in {_cfg.Schema}.{_cfg.TokenTable} for appKey");
-                refreshToken = r.GetString(0);
-            }
-
-            _logger.LogInformation("Derby token data fetched. AccountHash: {Hash}",
-                accountHash.Length > 6 ? accountHash[..6] + "..." : "***");
-
-            return new DerbyTokenData
-            {
-                AppKey       = appKey,
-                AppSecret    = appSecret,
-                AccountHash  = accountHash,
-                RefreshToken = refreshToken,
-            };
-        }, ct);
+        // Reading tokens from a thinkorswim Apache Derby database requires the IBM DB2 CLI
+        // driver (db2app64.dll) to be installed separately via the full IBM DB2 Client package.
+        // The Net.IBM.Data.Db2 NuGet package ships only a skeleton clidriver without the
+        // native binaries, which caused a fatal DllNotFoundException in the GC finalizer.
+        // The IBM.Data.Db2 dependency has been removed to prevent crashes in non-Schwab modes.
+        //
+        // To re-enable Derby token reading:
+        //   1. Install IBM Data Server Driver: https://www.ibm.com/support/pages/node/323035
+        //   2. Re-add Net.IBM.Data.Db2 to FastDOM.Broker.Schwab.csproj
+        //   3. Restore the original implementation from git history
+        //   4. Ensure IBM_DB_HOME points to the installed client before the assembly loads
+        _logger.LogError("Derby token reading is not available — IBM DB2 CLI not installed. " +
+                         "Configure a direct OAuth flow or install the IBM DB2 Client.");
+        throw new PlatformNotSupportedException(
+            "Derby/DB2 token source is not configured. " +
+            "The IBM DB2 CLI driver is required but not installed. " +
+            "See docs/SchwabIntegration.md for setup instructions.");
     }
 }

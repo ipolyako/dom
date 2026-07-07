@@ -224,8 +224,11 @@ public class AlpacaBrokerClient : IBrokerClient
             resp.EnsureSuccessStatusCode();
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
-            var id = doc.RootElement.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
-            return [new AccountInfo { AccountId = id, AccountHash = id, DisplayName = BrokerName, AccountType = "Alpaca" }];
+            var root = doc.RootElement;
+            var acctNum = root.TryGetProperty("account_number", out var anEl) ? anEl.GetString() ?? "" : "";
+            var uuid    = root.TryGetProperty("id",             out var idEl) ? idEl.GetString() ?? "" : "";
+            var accountId = string.IsNullOrEmpty(acctNum) ? uuid : acctNum;
+            return [new AccountInfo { AccountId = accountId, AccountHash = uuid, DisplayName = accountId, AccountType = "Alpaca" }];
         }
         catch (Exception ex)
         {

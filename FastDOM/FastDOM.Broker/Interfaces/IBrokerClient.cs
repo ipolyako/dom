@@ -28,6 +28,7 @@ public class AccountInfo
     public required string AccountHash { get; init; }
     public required string DisplayName { get; init; }
     public string? AccountType { get; init; }
+    public override string ToString() => DisplayName;
 }
 
 public class OrderResult

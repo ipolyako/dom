@@ -129,6 +129,51 @@ Authorization: Bearer {token}
 
 Schwab does NOT offer a publicly accessible paper trading API. The `schwab-py` library explicitly states "paper trading is not supported." FastDOM's "SchwabSandbox" mode connects to the live API for account/market data but blocks all order submissions locally.
 
+### Derby Token Source (thinkorswim OAuth Tokens)
+
+Schwab's thinkorswim desktop client stores its OAuth refresh token in a local Apache Derby
+database. FastDOM can read this database directly via `DerbyTokenProvider`, avoiding the need
+for a separate OAuth login flow when thinkorswim is already authenticated.
+
+**How it works:**
+1. thinkorswim creates a Derby database at a path like:
+   `C:\Users\<user>\AppData\Roaming\thinkorswim\<version>\db\`
+2. `DerbyTokenProvider` connects to the Derby DB using IBM.Data.Db2 and reads the refresh
+   token, App Key, and account hash from the `AUTHREF` and token tables.
+3. FastDOM uses the refresh token to obtain a live Schwab access token without user interaction.
+
+**Prerequisites:**
+- thinkorswim must be installed and you must have logged in at least once so the Derby DB exists.
+- The `token.source.json` config file must point to your Derby DB path (see below).
+- The `clidriver\` folder must be present next to `FastDOM.exe` (it is included automatically
+  in the publish output — see `BuildInstructions.md`).
+
+**`token.source.json` configuration:**
+```json
+{
+  "host": "localhost",
+  "port": 1527,
+  "database": "C:\\Users\\<you>\\AppData\\Roaming\\thinkorswim\\<version>\\db\\<dbname>",
+  "user": "APP",
+  "password": "APP",
+  "schema": "APP",
+  "authRefTable": "AUTHREF",
+  "tokenTable": "TOKEN",
+  "appKeyColumn": "APPKEY",
+  "appSecretColumn": "APPSECRET",
+  "accountHashColumn": "ACCOUNTHASH",
+  "refreshTokenColumn": "REFRESHTOKEN"
+}
+```
+
+Replace `<you>`, `<version>`, and `<dbname>` with the actual values from your machine. The
+`database` value is the full path to the Derby database directory (not a `.db` file).
+
+**IBM DB2 CLI driver — `IBM_DB_HOME`:**
+FastDOM sets `IBM_DB_HOME` to `<exe-dir>\clidriver` automatically on startup. No manual
+environment variable setup is needed. However, if you move `FastDOM.exe` without also moving
+the `clidriver\` folder, the Derby connection will fail and the app will crash on shutdown.
+
 ### Setup Checklist
 
 - [ ] Create account at developer.schwab.com

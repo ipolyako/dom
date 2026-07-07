@@ -1,5 +1,8 @@
+using System.Collections.ObjectModel;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FastDOM.App.Services;
+using FastDOM.App.Views;
 using FastDOM.Broker.Interfaces;
 using FastDOM.Core.Enums;
 using FastDOM.Core.Models;
@@ -16,26 +19,57 @@ public partial class HotButtonsViewModel : ObservableObject
     private readonly IBrokerClient _broker;
     private readonly IRiskManager _risk;
     private readonly ConfigManager _config;
+    private readonly ScriptEngine _scriptEngine;
 
-    public List<HotButtonConfig> Buttons => _config.HotButtons;
+    // ObservableCollection so the ItemsControl reacts to individual Add/Remove after save.
+    public ObservableCollection<HotButtonConfig> Buttons { get; } = [];
+
+    public void RefreshButtons()
+    {
+        Buttons.Clear();
+        foreach (var b in _config.HotButtons)
+            Buttons.Add(b);
+    }
 
     public event Action<string>? ToastRequested;
 
     public HotButtonsViewModel(ILogger<HotButtonsViewModel> logger,
         OrderService orderService, IBrokerClient broker,
-        IRiskManager risk, ConfigManager config)
+        IRiskManager risk, ConfigManager config, ScriptEngine scriptEngine)
     {
         _logger = logger;
         _orderService = orderService;
         _broker = broker;
         _risk = risk;
         _config = config;
+        _scriptEngine = scriptEngine;
+        RefreshButtons();
     }
 
     public async Task ExecuteButtonAsync(HotButtonConfig btn, string symbol, string accountId,
         int defaultSize, Quote? quote, Position? position)
     {
         if (!btn.IsEnabled) return;
+
+        if (!string.IsNullOrWhiteSpace(btn.Script))
+        {
+            _logger.LogInformation("Hot button script: {Label}", btn.Label);
+            var ctx = new ScriptContext
+            {
+                Symbol      = symbol,
+                AccountId   = accountId,
+                DefaultSize = defaultSize,
+                Quote       = quote,
+                Position    = position,
+                Orders      = _orderService,
+                Broker      = _broker,
+                Toast       = msg => ToastRequested?.Invoke(msg),
+                PromptUser  = ShowInputDialogAsync,
+            };
+            await _scriptEngine.ExecuteAsync(btn.Script, ctx);
+            return;
+        }
+
         _logger.LogInformation("Hot button: {Label} ({Action})", btn.Label, btn.Action);
         await ExecuteActionInternalAsync(btn.Action, symbol, accountId,
             ResolveQuantity(btn.QuantityRule, defaultSize, position, quote),
@@ -43,12 +77,31 @@ public partial class HotButtonsViewModel : ObservableObject
             btn.OrderType, quote, position);
     }
 
-    public async Task ExecuteActionAsync(string actionType, string symbol, string accountId, int defaultSize)
+    // Maps hotkey ActionType strings → HotButtonAction. Hotkey strings intentionally differ
+    // from enum names (e.g. "FlattenSymbol" vs Flatten) to allow config versioning.
+    private static readonly Dictionary<string, HotButtonAction> _hotkeyMap =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["BuyMarketableLimit"]  = HotButtonAction.BuyMarketableLimit,
+            ["SellMarketableLimit"] = HotButtonAction.SellMarketableLimit,
+            ["FlattenSymbol"]       = HotButtonAction.Flatten,
+            ["ReversePosition"]     = HotButtonAction.Reverse,
+            ["CancelAllSymbol"]     = HotButtonAction.CancelSymbol,
+            ["CancelAllAccount"]    = HotButtonAction.CancelAll,
+        };
+
+    public async Task ExecuteActionAsync(string actionType, string symbol, string accountId,
+        int defaultSize, Quote? quote = null, Position? position = null)
     {
         _logger.LogInformation("Execute action: {Action}", actionType);
-        if (!Enum.TryParse<HotButtonAction>(actionType, out var action)) return;
+        if (!Enum.TryParse<HotButtonAction>(actionType, out var action) &&
+            !_hotkeyMap.TryGetValue(actionType, out action))
+        {
+            _logger.LogWarning("Unknown hotkey action: {Action}", actionType);
+            return;
+        }
         await ExecuteActionInternalAsync(action, symbol, accountId, defaultSize, null,
-            OrderType.MarketableLimit, null, null);
+            OrderType.MarketableLimit, quote, position);
     }
 
     private async Task ExecuteActionInternalAsync(
@@ -69,6 +122,20 @@ public partial class HotButtonsViewModel : ObservableObject
             case HotButtonAction.SellBid:
                 await PlaceAsync(accountId, symbol, OrderSide.Sell, qty, OrderType.Limit, quote?.Bid);
                 break;
+            case HotButtonAction.BuyMarketableLimit:
+            {
+                var p = quote?.Ask > 0 ? quote.Ask : (decimal?)null;
+                await PlaceAsync(accountId, symbol, OrderSide.Buy, qty,
+                    p.HasValue ? OrderType.MarketableLimit : OrderType.Market, p);
+                break;
+            }
+            case HotButtonAction.SellMarketableLimit:
+            {
+                var p = quote?.Bid > 0 ? quote.Bid : (decimal?)null;
+                await PlaceAsync(accountId, symbol, OrderSide.Sell, qty,
+                    p.HasValue ? OrderType.MarketableLimit : OrderType.Market, p);
+                break;
+            }
             case HotButtonAction.BuyBid:
                 await PlaceAsync(accountId, symbol, OrderSide.Buy, qty, OrderType.Limit, quote?.Bid);
                 break;
@@ -108,6 +175,22 @@ public partial class HotButtonsViewModel : ObservableObject
         }
     }
 
+    // Shows an InputDialog on the UI thread from any calling thread.
+    private static async Task<decimal?> ShowInputDialogAsync(string varName, string prompt)
+    {
+        decimal? result = null;
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            var dlg = new InputDialog(prompt, "FastDOM — Enter Price")
+            {
+                Owner = Application.Current.MainWindow
+            };
+            if (dlg.ShowDialog() == true)
+                result = dlg.Value;
+        });
+        return result;
+    }
+
     private async Task PlaceAsync(string accountId, string symbol, OrderSide side,
         int qty, OrderType orderType, decimal? price)
     {
@@ -131,6 +214,11 @@ public partial class HotButtonsViewModel : ObservableObject
 
     private async Task FlattenAsync(string accountId, string symbol, Position? position)
     {
+        if (position == null)
+        {
+            var summary = await _broker.GetAccountSummaryAsync(accountId);
+            summary.Positions.TryGetValue(symbol, out position);
+        }
         if (position == null || position.IsFlat)
         {
             ToastRequested?.Invoke("No position to flatten");
@@ -143,6 +231,11 @@ public partial class HotButtonsViewModel : ObservableObject
 
     private async Task ReverseAsync(string accountId, string symbol, Position? position, Quote? quote)
     {
+        if (position == null)
+        {
+            var summary = await _broker.GetAccountSummaryAsync(accountId);
+            summary.Positions.TryGetValue(symbol, out position);
+        }
         if (position == null || position.IsFlat)
         {
             ToastRequested?.Invoke("No position to reverse");

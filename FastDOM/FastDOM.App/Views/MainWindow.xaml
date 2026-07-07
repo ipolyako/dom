@@ -6,11 +6,11 @@
         xmlns:views="clr-namespace:FastDOM.App.Views"
         mc:Ignorable="d"
         Title="FastDOM — Execution Terminal"
-        Height="800" Width="880"
-        MinHeight="650" MinWidth="820"
+        Height="870" Width="880"
+        MinHeight="700" MinWidth="820"
         Background="{StaticResource BackgroundBrush}"
         Foreground="{StaticResource ForegroundBrush}"
-        KeyDown="Window_KeyDown">
+        PreviewKeyDown="Window_KeyDown">
 
     <DockPanel>
         <!-- TOP BAR: Symbol, Mode, Connect, Quote -->
@@ -35,42 +35,41 @@
                           DisplayMemberPath="Label"
                           ToolTip="Switch trading mode"/>
 
-                <!-- Symbol selector -->
-                <ComboBox Grid.Column="1" Width="100" IsEditable="True"
-                          x:Name="SymbolComboBox"
-                          ItemsSource="{Binding SymbolList}"
-                          Text="{Binding SelectedSymbol, UpdateSourceTrigger=LostFocus}"
-                          SelectionChanged="SymbolComboBox_SelectionChanged"
-                          KeyDown="SymbolComboBox_KeyDown"
-                          Margin="0,0,4,0"/>
+                <!-- Symbol input -->
+                <TextBox Grid.Column="1" Width="90" x:Name="SymbolTextBox"
+                         Text="{Binding SelectedSymbol, UpdateSourceTrigger=Explicit}"
+                         KeyDown="SymbolTextBox_KeyDown"
+                         GotKeyboardFocus="SymbolTextBox_GotKeyboardFocus"
+                         PreviewMouseLeftButtonDown="SymbolTextBox_PreviewMouseLeftButtonDown"
+                         FontFamily="Consolas" FontWeight="Bold" FontSize="13"
+                         CharacterCasing="Upper"
+                         VerticalContentAlignment="Center"
+                         Margin="0,0,4,0"/>
 
                 <!-- Account selector -->
-                <ComboBox Grid.Column="2" Width="160"
+                <ComboBox Grid.Column="2" Width="160" Margin="0,0,8,0"
                           ItemsSource="{Binding Accounts}"
                           DisplayMemberPath="DisplayName"
                           SelectedValuePath="AccountId"
                           SelectedValue="{Binding SelectedAccountId}"
-                          Margin="0,0,8,0"/>
+                          ToolTip="{Binding SelectedAccountId}"/>
 
-                <!-- Quote display -->
-                <TextBlock Grid.Column="3" Text="{Binding QuoteDisplay}"
-                           VerticalAlignment="Center" FontSize="13" FontWeight="Bold"
-                           Foreground="{StaticResource LastBrush}" Margin="8,0"/>
-
-                <!-- Data age -->
-                <Border Grid.Column="4" CornerRadius="3" Padding="4,2" Margin="4,0"
-                        Background="{Binding MarketDataStale, Converter={StaticResource StaleBackgroundConverter}}">
-                    <TextBlock Text="{Binding DataAgeDisplay}" FontSize="11"
-                               Foreground="{Binding MarketDataStale, Converter={StaticResource StaleForeConverter}}"/>
-                </Border>
+                <!-- Buying power -->
+                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center"
+                            Margin="12,0,0,0" ToolTip="{Binding BuyingPowerTooltip}">
+                    <TextBlock Text="BP " Foreground="{StaticResource SecondaryForeBrush}"
+                               FontSize="11" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding BuyingPowerDisplay}" FontSize="12" FontWeight="Bold"
+                               Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                </StackPanel>
 
                 <!-- Connect button -->
-                <Button Grid.Column="5" Command="{Binding ConnectCommand}"
+                <Button Grid.Column="4" Command="{Binding ConnectCommand}"
                         Content="{Binding ConnectionStatus}" Width="120" Margin="4,0"
                         Background="{Binding IsConnected, Converter={StaticResource ConnBrushConverter}}"/>
 
                 <!-- Hotkeys armed indicator -->
-                <Border Grid.Column="6" CornerRadius="3" Padding="6,2" Margin="4,0,0,0"
+                <Border Grid.Column="5" CornerRadius="3" Padding="6,2" Margin="4,0,0,0"
                         Background="{Binding HotkeysArmed, Converter={StaticResource HotkeyBrushConverter}}"
                         ToolTip="Click to toggle hotkeys" Cursor="Hand"
                         MouseLeftButtonUp="HotkeyIndicator_Click">
@@ -79,10 +78,16 @@
                 </Border>
 
                 <!-- Hotkey settings button -->
-                <Button Grid.Column="7" Content="⚙" Width="26" Height="26" Margin="2,0,0,0"
+                <Button Grid.Column="6" Content="⚙" Width="26" Height="26" Margin="2,0,0,0"
                         FontSize="14" Padding="0"
                         ToolTip="Configure hotkeys"
                         Click="HotkeySettings_Click"/>
+
+                <!-- Options chain button -->
+                <Button Grid.Column="7" Content="OPT" Width="40" Height="26" Margin="2,0,0,0"
+                        FontSize="11" FontWeight="Bold" Padding="0"
+                        ToolTip="Open options chain"
+                        Click="OpenOptionsChain_Click"/>
             </Grid>
         </Border>
 
@@ -114,8 +119,8 @@
             </Grid.ColumnDefinitions>
 
             <!-- LEFT PANEL: Position + Order ticket + Emergency -->
-            <DockPanel Grid.Column="0" Background="{StaticResource PanelBrush}"
-                       Margin="0,0,1,0">
+            <Border Grid.Column="0" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,1,0">
+            <DockPanel Background="{StaticResource PanelBrush}">
 
                 <!-- Emergency kill switch -->
                 <Border DockPanel.Dock="Bottom" Background="#FF300000" Padding="4">
@@ -126,9 +131,9 @@
                             Content="⚠ KILL SWITCH — CANCEL + FLATTEN"/>
                 </Border>
 
-                <!-- Position panel -->
+<!-- Position panel — fixed height so the order ticket always has room -->
                 <views:PositionView DockPanel.Dock="Top" DataContext="{Binding PositionViewModel}"
-                                    Height="180"/>
+                                    Height="130"/>
 
                 <!-- Share size -->
                 <Border DockPanel.Dock="Top" Padding="8,4"
@@ -146,9 +151,11 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Order ticket -->
-                <views:OrderTicketView DataContext="{Binding OrderTicketViewModel}"/>
+                <!-- Order ticket + quick action buttons -->
+                <views:OrderTicketView DataContext="{Binding OrderTicketViewModel}"
+                                       QuickAction="OnOrderTicketQuickAction"/>
             </DockPanel>
+            </Border>
 
             <!-- CENTER: Position strip + DOM -->
             <DockPanel Grid.Column="1">
@@ -208,14 +215,39 @@
                     </Grid>
                 </Border>
 
+                <!-- Quote strip — sits between position summary and DOM levels -->
+                <Border DockPanel.Dock="Top" Background="#FF0A0A0A" Padding="6,3"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding QuoteDisplay}" FontSize="12" FontWeight="Bold"
+                                   Foreground="{StaticResource LastBrush}" VerticalAlignment="Center"/>
+                        <Border CornerRadius="3" Padding="4,1" Margin="8,0,0,0"
+                                Background="{Binding MarketDataStale, Converter={StaticResource StaleBackgroundConverter}}">
+                            <TextBlock Text="{Binding DataAgeDisplay}" FontSize="11"
+                                       Foreground="{Binding MarketDataStale, Converter={StaticResource StaleForeConverter}}"/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
                 <views:DomView DataContext="{Binding DomViewModel}"
                                DomPriceLevelClicked="OnDomPriceLevelClicked"
                                DomContextMenuRequested="OnDomContextMenu"/>
             </DockPanel>
 
-            <!-- RIGHT: Hot buttons -->
-            <views:HotButtonsView Grid.Column="2" DataContext="{Binding HotButtonsViewModel}"
-                                  HotButtonExecuted="OnHotButtonExecuted"/>
+            <!-- RIGHT: Hot buttons + Watchlist -->
+            <Border Grid.Column="2" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1,0,0,0">
+                <DockPanel>
+                    <!-- Watchlist: fixed height for ~10 symbols, docked to bottom -->
+                    <Border DockPanel.Dock="Bottom" Height="270"
+                            BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
+                        <views:WatchlistView DataContext="{Binding WatchlistViewModel}"/>
+                    </Border>
+                    <!-- Hot buttons fills remaining space -->
+                    <views:HotButtonsView DataContext="{Binding HotButtonsViewModel}"
+                                          HotButtonExecuted="OnHotButtonExecuted"
+                                          HotButtonSettingsRequested="OnHotButtonSettingsRequested"/>
+                </DockPanel>
+            </Border>
         </Grid>
     </DockPanel>
 </Window>

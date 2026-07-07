@@ -16,10 +16,20 @@ public partial class HotButtonsView : UserControl
         EventManager.RegisterRoutedEvent("HotButtonExecuted", RoutingStrategy.Bubble,
             typeof(EventHandler<HotButtonExecutedEventArgs>), typeof(HotButtonsView));
 
+    public static readonly RoutedEvent HotButtonSettingsRequestedEvent =
+        EventManager.RegisterRoutedEvent("HotButtonSettingsRequested", RoutingStrategy.Bubble,
+            typeof(RoutedEventHandler), typeof(HotButtonsView));
+
     public event EventHandler<HotButtonExecutedEventArgs> HotButtonExecuted
     {
         add => AddHandler(HotButtonExecutedEvent, value);
         remove => RemoveHandler(HotButtonExecutedEvent, value);
+    }
+
+    public event RoutedEventHandler HotButtonSettingsRequested
+    {
+        add => AddHandler(HotButtonSettingsRequestedEvent, value);
+        remove => RemoveHandler(HotButtonSettingsRequestedEvent, value);
     }
 
     public HotButtonsView() => InitializeComponent();
@@ -27,8 +37,9 @@ public partial class HotButtonsView : UserControl
     private void HotButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is HotButtonConfig cfg)
-        {
             RaiseEvent(new HotButtonExecutedEventArgs(HotButtonExecutedEvent, cfg) { Source = this });
-        }
     }
+
+    private void HotButtonSettings_Click(object sender, RoutedEventArgs e)
+        => RaiseEvent(new RoutedEventArgs(HotButtonSettingsRequestedEvent, this));
 }

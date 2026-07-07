@@ -5,40 +5,109 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              Background="{StaticResource PanelBrush}">
-    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8">
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="90"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Symbol:" Foreground="{StaticResource SecondaryForeBrush}" FontSize="11"/>
-            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Symbol}" FontWeight="Bold" FontSize="13"/>
+    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+        <DockPanel>
 
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Position:" Foreground="{StaticResource SecondaryForeBrush}" FontSize="11"/>
-            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
-                <TextBlock Text="{Binding Side}" FontWeight="Bold" FontSize="13"
-                           Foreground="{Binding Side, Converter={StaticResource SideBrushConverter}}"/>
-                <TextBlock Text=" " FontSize="13"/>
-                <TextBlock Text="{Binding Quantity}" FontSize="13"/>
-            </StackPanel>
+            <!-- Section label -->
+            <Border DockPanel.Dock="Top" Background="#FF161616" Padding="6,3"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                <TextBlock Text="ACCOUNT POSITIONS" FontSize="10" FontWeight="Bold"
+                           Foreground="{StaticResource SecondaryForeBrush}"/>
+            </Border>
 
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Avg Cost:" Foreground="{StaticResource SecondaryForeBrush}" FontSize="11"/>
-            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AverageCost, StringFormat=F2}" FontSize="12"/>
+            <!-- Column headers -->
+            <Border DockPanel.Dock="Top" Background="#FF0D0D0D" Padding="6,2">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="52"/>
+                        <ColumnDefinition Width="42"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="SYM"      FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold"/>
+                    <TextBlock Grid.Column="1" Text="SHR"      FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right"/>
+                    <TextBlock Grid.Column="2" Text="OPEN P/L" FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right" Margin="4,0"/>
+                    <TextBlock Grid.Column="3" Text="DAY P/L"  FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right"/>
+                </Grid>
+            </Border>
 
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Unr. P/L:" Foreground="{StaticResource SecondaryForeBrush}" FontSize="11"/>
-            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding PnLDisplay}" FontSize="13" FontWeight="Bold"
-                       Foreground="{Binding UnrealizedPnL, Converter={StaticResource PnLBrushConverter}}"/>
+            <!-- Position rows — each row is a button that loads the symbol into the DOM -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding AllPositions}" x:Name="PositionsList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Command="{Binding DataContext.SelectSymbolCommand,
+                                            RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                    CommandParameter="{Binding Symbol}"
+                                    Background="Transparent" BorderThickness="0"
+                                    HorizontalContentAlignment="Stretch"
+                                    Padding="0" Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border x:Name="Bg" Background="Transparent"
+                                                            BorderBrush="#FF1A1A1A" BorderThickness="0,0,0,1"
+                                                            Padding="6,5">
+                                                        <ContentPresenter/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="Bg" Property="Background" Value="#FF1E1E1E"/>
+                                                        </Trigger>
+                                                        <Trigger Property="IsPressed" Value="True">
+                                                            <Setter TargetName="Bg" Property="Background" Value="#FF252525"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
 
-            <TextBlock Grid.Row="4" Grid.Column="0" Text="BP:" Foreground="{StaticResource SecondaryForeBrush}" FontSize="11"/>
-            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding BuyingPower, StringFormat='${0:N0}'}" FontSize="11"/>
-        </Grid>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="52"/>
+                                        <ColumnDefinition Width="42"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding Symbol}"
+                                               FontSize="11" FontWeight="Bold" FontFamily="Consolas"
+                                               Foreground="{Binding Side, Converter={StaticResource SideBrushConverter}}"/>
+
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Qty}"
+                                               FontSize="11" FontFamily="Consolas"
+                                               Foreground="{Binding Side, Converter={StaticResource SideBrushConverter}}"
+                                               TextAlignment="Right"/>
+
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding OpenPnL}"
+                                               FontSize="11" FontFamily="Consolas"
+                                               Foreground="{Binding OpenPnLValue, Converter={StaticResource PnLBrushConverter}}"
+                                               TextAlignment="Right" Margin="4,0"/>
+
+                                    <TextBlock Grid.Column="3"
+                                               Text="{Binding DayPnL}"
+                                               FontSize="11" FontFamily="Consolas"
+                                               Foreground="{Binding DayPnLValue, Converter={StaticResource PnLBrushConverter}}"
+                                               TextAlignment="Right"/>
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                    <ItemsControl.Template>
+                        <ControlTemplate TargetType="ItemsControl">
+                            <ItemsPresenter/>
+                        </ControlTemplate>
+                    </ItemsControl.Template>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
     </Border>
 </UserControl>

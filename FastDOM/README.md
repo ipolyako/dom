@@ -29,23 +29,18 @@ A lightweight Windows execution panel for active trading via the Schwab Trader A
 
 ---
 
-## Quick Start (Simulation Mode)
+## Quick Start
 
-1. Clone the repository
-2. Build: `dotnet build FastDOM.sln -c Release`
-3. Run: `dotnet run --project FastDOM.App`
-4. The app starts in Simulation mode — no broker connection required
-5. Select a symbol, click price levels to place simulated orders
-
----
-
-## Building a Self-Contained Executable
-
-```
-dotnet publish FastDOM.App -c Release -r win-x64 --self-contained true
+```bash
+git clone https://github.com/ipolyako/dom
+cd dom/FastDOM
+dotnet publish FastDOM.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+publish\FastDOM.exe
 ```
 
-Output in `FastDOM.App/bin/Release/net8.0-windows/win-x64/publish/`
+The app starts in **Simulation mode** on first launch — no broker connection or config setup required. Config files are auto-created next to the exe from the bundled examples.
+
+To switch to live trading, edit the JSON files next to `FastDOM.exe` (see **Config Files** below).
 
 ---
 
@@ -84,7 +79,7 @@ docs/                   Architecture, Schwab integration, risk docs
 
 ## Config Files
 
-All stored in `%APPDATA%\FastDOM\`:
+Stored next to `FastDOM.exe` (auto-created on first run from `*.example.json` templates):
 
 | File | Purpose |
 |------|---------|

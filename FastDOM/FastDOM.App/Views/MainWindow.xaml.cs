@@ -55,6 +55,18 @@ public partial class MainWindow : Window
         // Wire hot buttons
         _vm.HotButtonsViewModel.ToastRequested += msg =>
             Dispatcher.Invoke(() => _vm.LastToast = msg);
+
+        // Sync ComboBox SelectedItem when SelectedSymbol changes from code (e.g. hotkey, connect)
+        // so the dropdown highlights the current item when opened.
+        _vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.SelectedSymbol) && !_symbolSelectionUpdating)
+            {
+                _symbolSelectionUpdating = true;
+                SymbolComboBox.SelectedItem = _vm.SelectedSymbol;
+                _symbolSelectionUpdating = false;
+            }
+        };
     }
 
     protected override async void OnContentRendered(EventArgs e)

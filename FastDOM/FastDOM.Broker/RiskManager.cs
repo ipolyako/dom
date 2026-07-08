@@ -29,13 +29,7 @@ public class RiskManager : IRiskManager
         if (_killSwitchActive) return false;
         if (!_profile.LiveTradingEnabled) return true; // SIM mode always allowed
 
-        if (_profile.AccountWhitelist.Count > 0 && !_profile.AccountWhitelist.Contains(accountId))
-            return false;
-
         if (_profile.SymbolBlacklist.Contains(symbol.ToUpperInvariant())) return false;
-
-        if (_profile.SymbolWhitelist.Count > 0 && !_profile.SymbolWhitelist.Contains(symbol.ToUpperInvariant()))
-            return false;
 
         return true;
     }
@@ -56,19 +50,12 @@ public class RiskManager : IRiskManager
 
         if (_profile.LiveTradingEnabled)
         {
-            if (_profile.AccountWhitelist.Count > 0 &&
-                !_profile.AccountWhitelist.Contains(request.AccountId))
-                return RiskValidationResult.Reject($"Account {request.AccountId} is not whitelisted",
-                    RiskRejectCode.AccountNotWhitelisted);
         }
 
         var symbol = request.Symbol.ToUpperInvariant();
 
         if (_profile.SymbolBlacklist.Contains(symbol))
             return RiskValidationResult.Reject($"Symbol {symbol} is blacklisted", RiskRejectCode.SymbolNotAllowed);
-
-        if (_profile.SymbolWhitelist.Count > 0 && !_profile.SymbolWhitelist.Contains(symbol))
-            return RiskValidationResult.Reject($"Symbol {symbol} is not in whitelist", RiskRejectCode.SymbolNotAllowed);
 
         if (request.Quantity <= 0)
             return RiskValidationResult.Reject("Quantity must be > 0", RiskRejectCode.InvalidQuantity);

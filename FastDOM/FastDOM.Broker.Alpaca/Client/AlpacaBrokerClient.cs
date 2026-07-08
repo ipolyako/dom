@@ -350,7 +350,7 @@ public class AlpacaBrokerClient : IBrokerClient
             if (!resp.IsSuccessStatusCode)
             {
                 _logger.LogError("Alpaca PlaceOrder failed: {Status} {Body}", resp.StatusCode, body);
-                return OrderResult.Fail($"Alpaca rejected: {resp.StatusCode} — {body}");
+                return OrderResult.Fail($"Alpaca rejected: {resp.StatusCode} — {InterpretAlpacaError(body)}");
             }
 
             using var doc = JsonDocument.Parse(body);
@@ -363,6 +363,29 @@ public class AlpacaBrokerClient : IBrokerClient
             _logger.LogError(ex, "PlaceOrderAsync failed");
             return OrderResult.Fail(ex.Message);
         }
+    }
+
+    // Translate Alpaca's raw JSON error body into a trader-friendly message.
+    // Wash-trade rejections (code 40310000) return the CONFLICTING order's fields
+    // (e.g. buy_limit_price) — surface that as "existing X @ Y blocks Z" so the user
+    // doesn't misread it as the submitted order being wrong-side.
+    private static string InterpretAlpacaError(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("code", out var codeEl) && codeEl.GetInt32() == 40310000)
+            {
+                var side  = root.TryGetProperty("buy_limit_price", out var b) ? ("Buy Limit @ " + b.GetString())
+                          : root.TryGetProperty("sell_limit_price", out var s) ? ("Sell Limit @ " + s.GetString())
+                          : "opposite-side order";
+                return $"Wash-trade prevention: existing {side} blocks this submission — cancel the existing order first.";
+            }
+            if (root.TryGetProperty("message", out var m)) return m.GetString() ?? body;
+        }
+        catch { }
+        return body;
     }
 
     public async Task<OrderResult> CancelOrderAsync(string accountId, string brokerOrderId, CancellationToken ct = default)

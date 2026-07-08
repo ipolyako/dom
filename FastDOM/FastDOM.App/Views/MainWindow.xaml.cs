@@ -75,9 +75,6 @@ public partial class MainWindow : Window
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
-        // Don't intercept while the user is typing in a text field
-        if (Keyboard.FocusedElement is TextBox) return;
-
         var gesture = HotkeyService.BuildGestureString(e);
 
         // 1. Hot button shortcuts take priority over fixed bindings (explicit user assignment wins)
@@ -100,6 +97,11 @@ public partial class MainWindow : Window
         }
 
         // 2. Fixed hotkey bindings (HotkeyConfig)
+        // Skip if focus is on a text field and no modifier is held — those are text input,
+        // not hotkeys. Modifier combos (Ctrl+F, Ctrl+Shift+E) always fire.
+        if (Keyboard.FocusedElement is TextBox && Keyboard.Modifiers == ModifierKeys.None)
+            return;
+
         var action = _hotkeyService.ProcessKeyDown(e);
         if (action != null)
         {
@@ -275,6 +277,17 @@ public partial class MainWindow : Window
             _vm.ShareSize,
             _vm.DomViewModel.Rows.FirstOrDefault() != null ? null : null,
             pos);
+    }
+
+    private void OrdersButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Each order is stored under both ClientOrderId and BrokerOrderId keys; dedupe.
+        var orders = _orderService.ActiveOrders.Values
+            .Where(o => o.IsWorking)
+            .DistinctBy(o => o.BrokerOrderId ?? o.ClientOrderId)
+            .ToList();
+        var dlg = new OrdersWindow(orders, _orderService, _vm.SelectedAccountId) { Owner = this };
+        dlg.ShowDialog();
     }
 
     private void OpenOptionsChain_Click(object sender, RoutedEventArgs e)

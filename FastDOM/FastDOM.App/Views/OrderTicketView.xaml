@@ -61,10 +61,16 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="60"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="TIF:" VerticalAlignment="Center" Foreground="{StaticResource SecondaryForeBrush}"/>
                 <ComboBox Grid.Column="1" ItemsSource="{Binding TifOptions}" SelectedItem="{Binding TimeInForce}"
                           DisplayMemberPath="."/>
+                <CheckBox Grid.Column="2" Margin="6,0,0,0"
+                          Content="Ext" VerticalAlignment="Center"
+                          IsChecked="{Binding ExtendedHours}"
+                          Foreground="{StaticResource ForegroundBrush}"
+                          ToolTip="Extended hours (pre/post-market) — Limit orders only. Alpaca requires this flag; Schwab uses SEAMLESS session."/>
             </Grid>
 
             <Grid Margin="0,4">

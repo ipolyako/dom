@@ -46,12 +46,14 @@
                          VerticalContentAlignment="Center"
                          Margin="0,0,4,0"/>
 
-                <!-- Account selector -->
+                <!-- Account selector — border color reflects connection state -->
                 <ComboBox Grid.Column="2" Width="160" Margin="0,0,8,0"
                           ItemsSource="{Binding Accounts}"
                           DisplayMemberPath="DisplayName"
                           SelectedValuePath="AccountId"
                           SelectedValue="{Binding SelectedAccountId}"
+                          BorderBrush="{Binding IsConnected, Converter={StaticResource ConnBrushConverter}}"
+                          BorderThickness="2"
                           ToolTip="{Binding SelectedAccountId}"/>
 
                 <!-- Buying power -->
@@ -63,10 +65,11 @@
                                Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Connect button -->
-                <Button Grid.Column="4" Command="{Binding ConnectCommand}"
-                        Content="{Binding ConnectionStatus}" Width="120" Margin="4,0"
-                        Background="{Binding IsConnected, Converter={StaticResource ConnBrushConverter}}"/>
+                <!-- Orders button — orange when open orders exist -->
+                <Button Grid.Column="4" Content="Orders" Width="80" Margin="4,0"
+                        Background="{Binding HasOpenOrders, Converter={StaticResource OrdersBrushConverter}}"
+                        Click="OrdersButton_Click"
+                        ToolTip="View and cancel open orders"/>
 
                 <!-- Hotkeys armed indicator -->
                 <Border Grid.Column="5" CornerRadius="3" Padding="6,2" Margin="4,0,0,0"

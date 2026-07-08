@@ -40,6 +40,19 @@ public partial class OrderTicketViewModel : ObservableObject
         _logger = logger;
         _orderService = orderService;
         _broker = broker;
+        // Default the Ext flag to true when the app opens outside regular trading hours
+        // so pre/post-market clicks don't get silently rejected.
+        _extendedHours = IsOutsideRegularHours(DateTime.UtcNow);
+    }
+
+    // Regular US equity session: 09:30–16:00 ET, Mon–Fri (holidays not handled here).
+    private static bool IsOutsideRegularHours(DateTime utcNow)
+    {
+        var etZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        var et = TimeZoneInfo.ConvertTimeFromUtc(utcNow, etZone);
+        if (et.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return true;
+        var t = et.TimeOfDay;
+        return t < new TimeSpan(9, 30, 0) || t >= new TimeSpan(16, 0, 0);
     }
 
     partial void OnOrderTypeChanged(OrderType value)
@@ -93,6 +106,7 @@ public partial class OrderTicketViewModel : ObservableObject
             StopPrice  = StopPrice,
             TimeInForce = TimeInForce,
             ExtendedHours = ExtendedHours,
+            Session   = ExtendedHours ? OrderSession.Seamless : OrderSession.Normal,
             Source    = OrderSource.OrderTicket
         };
 

@@ -1,0 +1,19 @@
+{
+  "LiveTradingEnabled": false,
+  "AccountWhitelist": [],
+  "SymbolWhitelist": [],
+  "SymbolBlacklist": [],
+  "MaxSharesPerOrder": 0,
+  "MaxNotionalPerOrder": 1000000,
+  "MaxPositionNotionalPerSymbol": 5000000,
+  "MaxDailyLoss": 500,
+  "MaxDailyOrderCount": 500,
+  "MaxOrdersPerMinute": 20,
+  "AllowShortSelling": false,
+  "AllowExtendedHours": true,
+  "RequireConfirmationAboveNotional": 0,
+  "DisableOpeningOrdersWhenMarketDataStale": false,
+  "MarketDataStaleMs": 2500,
+  "MaxSpreadForMarketOrders": 0,
+  "RequireConfirmAllLiveOrders": false
+}

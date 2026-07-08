@@ -1,7 +1,13 @@
 # Build output
 **/bin/
 **/obj/
-publish/
+publish_test/
+
+# publish/ is tracked — only exclude files containing credentials
+publish/broker.schwab.json
+publish/alpaca.json
+publish/token.source.json
+publish/logs/
 
 # User secrets / credentials — exclude real configs but allow config-examples/
 **/appsettings.local.json

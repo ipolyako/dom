@@ -47,6 +47,22 @@ public class OrderService
         var sw = Stopwatch.StartNew();
 
         // 1. Local validation
+        // Extended-hours orders must be Limit + Day (Alpaca + Schwab both enforce this).
+        if (request.ExtendedHours)
+        {
+            string? extErr = null;
+            if (request.OrderType != OrderType.Limit && request.OrderType != OrderType.MarketableLimit)
+                extErr = $"Extended-hours orders must be Limit type (got {request.OrderType})";
+            else if (request.TimeInForce != TimeInForce.Day)
+                extErr = $"Extended-hours orders must use Day TIF (got {request.TimeInForce})";
+            if (extErr != null)
+            {
+                _logger.LogWarning("Order rejected locally: {Reason}", extErr);
+                ToastRequested?.Invoke($"REJECTED: {extErr}");
+                return (false, extErr);
+            }
+        }
+
         if (IsStopOrder(request.OrderType) && request.StopPrice.HasValue && quote != null)
         {
             var mid = quote.Last > 0 ? quote.Last : (quote.Ask + quote.Bid) / 2m;

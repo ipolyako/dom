@@ -121,6 +121,16 @@ public class ConnBrushConverter : IValueConverter
 }
 
 [ValueConversion(typeof(bool), typeof(Brush))]
+public class OrdersBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is true ? new SolidColorBrush(Color.FromRgb(230, 81, 0)) : new SolidColorBrush(Color.FromRgb(42, 42, 42));
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+[ValueConversion(typeof(bool), typeof(Brush))]
 public class HotkeyBrushConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

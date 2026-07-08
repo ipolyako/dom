@@ -152,10 +152,9 @@ public partial class HotButtonsViewModel : ObservableObject
                 ToastRequested?.Invoke($"Cancelled all orders ({allSymbols.Count} symbols)");
                 break;
             case HotButtonAction.SellPercent when position != null:
-                var sellQty = (int)Math.Ceiling(Math.Abs(position.Quantity) *
-                              (qty / 100.0));
-                if (sellQty > 0)
-                    await PlaceAsync(accountId, symbol, OrderSide.Sell, sellQty, OrderType.Market, null);
+                // qty is already resolved to shares by ResolveQuantity — use it directly
+                if (qty > 0)
+                    await PlaceAsync(accountId, symbol, OrderSide.Sell, qty, OrderType.Market, null);
                 break;
             case HotButtonAction.MoveStopToBreakeven:
                 ToastRequested?.Invoke("Move Stop to BE: select the stop order first");
@@ -188,6 +187,7 @@ public partial class HotButtonsViewModel : ObservableObject
         if (qty <= 0) { ToastRequested?.Invoke("Qty = 0, order not placed"); return; }
 
         var account = await _broker.GetAccountSummaryAsync(accountId);
+        var isExt = IsOutsideRegularHours(DateTime.UtcNow);
         var req = new OrderRequest
         {
             AccountId = accountId,
@@ -196,11 +196,22 @@ public partial class HotButtonsViewModel : ObservableObject
             Quantity  = qty,
             OrderType = orderType,
             LimitPrice = price,
+            ExtendedHours = isExt,
+            Session   = isExt ? OrderSession.Seamless : OrderSession.Normal,
             Source    = OrderSource.HotButton
         };
 
         var (success, msg) = await _orderService.SubmitOrderAsync(req, account, null);
         ToastRequested?.Invoke(success ? $"Order sent: {side} {qty} {symbol}" : $"REJECTED: {msg}");
+    }
+
+    private static bool IsOutsideRegularHours(DateTime utcNow)
+    {
+        var etZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        var et = TimeZoneInfo.ConvertTimeFromUtc(utcNow, etZone);
+        if (et.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return true;
+        var t = et.TimeOfDay;
+        return t < new TimeSpan(9, 30, 0) || t >= new TimeSpan(16, 0, 0);
     }
 
     private async Task FlattenAsync(string accountId, string symbol, Position? position)

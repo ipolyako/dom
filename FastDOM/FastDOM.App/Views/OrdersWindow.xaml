@@ -1,0 +1,104 @@
+<Window x:Class="FastDOM.App.Views.OrdersWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Open Orders"
+        Width="640" Height="360"
+        MinWidth="480" MinHeight="240"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="#FF1A1A1A"
+        Foreground="#FFE0E0E0">
+
+    <DockPanel Margin="10">
+
+        <!-- Bottom toolbar -->
+        <Border DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" x:Name="StatusText"
+                           Foreground="#FF909090" FontSize="11" FontFamily="Consolas"
+                           VerticalAlignment="Center"/>
+                <Button Grid.Column="1" Content="Cancel All" Width="90" Margin="0,0,8,0"
+                        Click="CancelAll_Click"
+                        Background="#FF2A1010" BorderBrush="#FF7F0000"/>
+                <Button Grid.Column="2" Content="Close" Width="78"
+                        Click="Close_Click"/>
+            </Grid>
+        </Border>
+
+        <!-- Orders DataGrid -->
+        <DataGrid x:Name="OrdersGrid"
+                  ItemsSource="{Binding Orders}"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  IsReadOnly="True"
+                  SelectionMode="Single"
+                  GridLinesVisibility="Horizontal"
+                  HeadersVisibility="Column"
+                  ColumnHeaderHeight="24">
+
+            <DataGrid.Columns>
+
+                <DataGridTextColumn Header="Symbol" Binding="{Binding Symbol}"
+                                    Width="70" FontFamily="Consolas" FontWeight="Bold"/>
+
+                <DataGridTemplateColumn Header="Side" Width="52">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Side}" Padding="4,0"
+                                       FontWeight="Bold" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Side}" Value="Buy">
+                                                <Setter Property="Foreground" Value="#FF4CAF50"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Side}" Value="Sell">
+                                                <Setter Property="Foreground" Value="#FFF44336"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTextColumn Header="Qty" Binding="{Binding QuantityRemaining}"
+                                    Width="50" FontFamily="Consolas"/>
+
+                <DataGridTextColumn Header="Type" Binding="{Binding OrderType}"
+                                    Width="80" FontFamily="Consolas"/>
+
+                <DataGridTemplateColumn Header="Price" Width="75">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding LimitPrice, StringFormat='F2', TargetNullValue='MKT'}"
+                                       Padding="4,0" FontFamily="Consolas" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTextColumn Header="Status" Binding="{Binding Status}"
+                                    Width="110" FontFamily="Consolas"/>
+
+                <DataGridTemplateColumn Header="" Width="66">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="× Cancel" Height="22" FontSize="10" Padding="4,0"
+                                    Tag="{Binding BrokerOrderId}"
+                                    Click="CancelRow_Click"
+                                    Background="#FF2A1010" BorderBrush="#FF7F0000"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

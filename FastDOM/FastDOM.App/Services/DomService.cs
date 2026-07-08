@@ -82,15 +82,22 @@ public class DomService : IDisposable
             foreach (var a in _currentDepth.Asks) askSizes[a.Price] = a.AskSize;
         }
 
-        // Working order lookup
+        // Working order lookup — market orders pinned to best quote (ask for buys, bid for sells)
+        decimal mktBuyPrice  = _symbolInfo.RoundToTick(_currentQuote.Ask > 0 ? _currentQuote.Ask : center);
+        decimal mktSellPrice = _symbolInfo.RoundToTick(_currentQuote.Bid > 0 ? _currentQuote.Bid : center);
+
         var buyOrders = workingOrders
-            .Where(o => o.IsWorking && o.Side == Core.Enums.OrderSide.Buy && o.LimitPrice.HasValue)
-            .GroupBy(o => _symbolInfo.RoundToTick(o.LimitPrice!.Value))
+            .Where(o => o.IsWorking && o.Side == Core.Enums.OrderSide.Buy)
+            .GroupBy(o => o.LimitPrice.HasValue
+                ? _symbolInfo.RoundToTick(o.LimitPrice.Value)
+                : mktBuyPrice)
             .ToDictionary(g => g.Key, g => g.ToList());
 
         var sellOrders = workingOrders
-            .Where(o => o.IsWorking && o.Side == Core.Enums.OrderSide.Sell && o.LimitPrice.HasValue)
-            .GroupBy(o => _symbolInfo.RoundToTick(o.LimitPrice!.Value))
+            .Where(o => o.IsWorking && o.Side == Core.Enums.OrderSide.Sell)
+            .GroupBy(o => o.LimitPrice.HasValue
+                ? _symbolInfo.RoundToTick(o.LimitPrice.Value)
+                : mktSellPrice)
             .ToDictionary(g => g.Key, g => g.ToList());
 
         decimal positionPrice = position?.AverageCost ?? 0;

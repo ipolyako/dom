@@ -38,6 +38,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _connectionStatus = "Disconnected";
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private bool _hotkeysArmed = true;
+    [ObservableProperty] private bool _hasOpenOrders;
     [ObservableProperty] private string _lastToast = "";
     [ObservableProperty] private bool _isLiveMode;
     [ObservableProperty] private string _quoteDisplay = "—";
@@ -250,7 +251,12 @@ public partial class MainViewModel : ObservableObject
                 ? $" @{state.AverageFillPrice:F2}"
                 : state.LimitPrice.HasValue ? $" @{state.LimitPrice:F2}" : " MKT";
             LogActivity($"Order {state.Status}: {state.Side} {state.QuantityOrdered} {state.Symbol}{priceStr}");
-            DomViewModel.RefreshOrders(_orderService.ActiveOrders.Values);
+            // Each order is stored under both ClientOrderId and BrokerOrderId keys; dedupe.
+            var uniqueOrders = _orderService.ActiveOrders.Values
+                .DistinctBy(o => o.BrokerOrderId ?? o.ClientOrderId)
+                .ToList();
+            DomViewModel.RefreshOrders(uniqueOrders);
+            HasOpenOrders = uniqueOrders.Any(o => o.IsWorking);
 
             if (state.Status is OrderStatus.Filled or OrderStatus.PartiallyFilled)
             {

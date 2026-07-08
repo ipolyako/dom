@@ -142,11 +142,25 @@ public partial class DomViewModel : ObservableObject
     public async Task CancelOrdersAtPriceAsync(decimal price)
     {
         if (CurrentAccountId == null) return;
+        var q  = _domService.CurrentQuote;
+        var si = _domService.SymbolInfo;
         var toCancel = WorkingOrders
-            .Where(o => o.LimitPrice.HasValue && o.LimitPrice.Value == price && o.BrokerOrderId != null)
+            .Where(o => o.BrokerOrderId != null && IsOrderAtDisplayPrice(o, price, q, si))
             .ToList();
         foreach (var o in toCancel)
             await _orderService.CancelOrderAsync(CurrentAccountId, o.BrokerOrderId!);
+    }
+
+    // Mirrors the pinning logic in DomService.BuildLadder so market orders cancel correctly.
+    private static bool IsOrderAtDisplayPrice(OrderState o, decimal price, FastDOM.MarketData.Models.Quote? q, FastDOM.Core.Models.SymbolInfo si)
+    {
+        if (o.LimitPrice.HasValue)
+            return si.RoundToTick(o.LimitPrice.Value) == price;
+        if (q == null) return false;
+        var pin = o.Side == OrderSide.Buy
+            ? (q.Ask > 0 ? q.Ask : q.Last)
+            : (q.Bid > 0 ? q.Bid : q.Last);
+        return si.RoundToTick(pin) == price;
     }
 
     // Returns true if there are working orders on the buy side at this price

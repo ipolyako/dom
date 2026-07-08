@@ -119,19 +119,14 @@
                         </DataGridTemplateColumn.CellEditingTemplate>
                     </DataGridTemplateColumn>
 
-                    <!-- Shortcut key -->
-                    <DataGridTemplateColumn Header="Shortcut" Width="70">
+                    <!-- Shortcut key — display only; use Key: field in detail panel to capture -->
+                    <DataGridTemplateColumn Header="Shortcut" Width="70" IsReadOnly="True">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding KeyboardShortcut}" Padding="4,0"
                                            VerticalAlignment="Center" Foreground="#FF909090"/>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
-                        <DataGridTemplateColumn.CellEditingTemplate>
-                            <DataTemplate>
-                                <TextBox Text="{Binding KeyboardShortcut, UpdateSourceTrigger=PropertyChanged}"/>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellEditingTemplate>
                     </DataGridTemplateColumn>
 
                     <!-- Script / Action preview -->

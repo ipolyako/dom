@@ -12,6 +12,7 @@
     <conv:StaleBackgroundConverter x:Key="StaleBackgroundConverter"/>
     <conv:StaleForeConverter x:Key="StaleForeConverter"/>
     <conv:ConnBrushConverter x:Key="ConnBrushConverter"/>
+    <conv:OrdersBrushConverter x:Key="OrdersBrushConverter"/>
     <conv:HotkeyBrushConverter x:Key="HotkeyBrushConverter"/>
     <conv:HotkeyLabelConverter x:Key="HotkeyLabelConverter"/>
     <conv:PnLBrushConverter x:Key="PnLBrushConverter"/>

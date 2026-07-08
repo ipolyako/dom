@@ -49,6 +49,13 @@ public class ConfigManager
         SchwabConfig = Load<SchwabConfig>("broker.schwab.json") ?? new SchwabConfig();
         AlpacaConfig = Load<AlpacaConfig>("alpaca.json") ?? new AlpacaConfig();
         RiskProfile = Load<RiskProfile>("risk.profile.json") ?? new RiskProfile();
+        if (AppSettings.Mode == TradingMode.SchwabLive &&
+            RiskProfile.DisableOpeningOrdersWhenMarketDataStale &&
+            RiskProfile.MarketDataStaleMs <= 2500)
+        {
+            RiskProfile.DisableOpeningOrdersWhenMarketDataStale = false;
+            Save("risk.profile.json", RiskProfile);
+        }
         HotkeyConfig = Load<HotkeyConfig>("hotkeys.json") ?? new HotkeyConfig();
         HotButtons = Load<List<HotButtonConfig>>("hotbuttons.json") ?? DefaultHotButtons();
         TokenSource = Load<TokenSourceConfig>("token.source.json") ?? new TokenSourceConfig();

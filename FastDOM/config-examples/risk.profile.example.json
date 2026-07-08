@@ -1,0 +1,26 @@
+{
+  "LiveTradingEnabled": false,
+  "AccountWhitelist": [],
+  "SymbolWhitelist": [
+    "SPY",
+    "QQQ",
+    "NVDA",
+    "TSLA",
+    "TQQQ",
+    "SQQQ"
+  ],
+  "SymbolBlacklist": [],
+  "MaxSharesPerOrder": 100,
+  "MaxNotionalPerOrder": 25000,
+  "MaxPositionNotionalPerSymbol": 50000,
+  "MaxDailyLoss": 500,
+  "MaxDailyOrderCount": 500,
+  "MaxOrdersPerMinute": 20,
+  "AllowShortSelling": false,
+  "AllowExtendedHours": false,
+  "RequireConfirmationAboveNotional": 10000,
+  "DisableOpeningOrdersWhenMarketDataStale": false,
+  "MarketDataStaleMs": 2500,
+  "MaxSpreadForMarketOrders": 0.05,
+  "RequireConfirmAllLiveOrders": false
+}

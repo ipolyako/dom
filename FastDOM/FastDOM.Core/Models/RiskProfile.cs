@@ -15,7 +15,7 @@ public class RiskProfile
     public bool AllowShortSelling { get; set; } = false;
     public bool AllowExtendedHours { get; set; } = false;
     public decimal RequireConfirmationAboveNotional { get; set; } = 0m; // 0 = no confirmation required
-    public bool DisableOpeningOrdersWhenMarketDataStale { get; set; } = true;
+    public bool DisableOpeningOrdersWhenMarketDataStale { get; set; } = false;
     public int MarketDataStaleMs { get; set; } = 2500;
     public decimal MaxSpreadForMarketOrders { get; set; } = 0.05m;
     public bool RequireConfirmAllLiveOrders { get; set; } = false;

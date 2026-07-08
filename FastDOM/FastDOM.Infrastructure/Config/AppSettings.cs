@@ -5,7 +5,7 @@ namespace FastDOM.Infrastructure.Config;
 
 public class AppSettings
 {
-    public TradingMode Mode { get; set; } = TradingMode.Simulation;
+    public TradingMode Mode { get; set; } = TradingMode.SchwabLive;
     public string LogDirectory { get; set; } = "logs";
     public int MaxLogFileSizeMb { get; set; } = 50;
     public int MaxLogFiles { get; set; } = 10;

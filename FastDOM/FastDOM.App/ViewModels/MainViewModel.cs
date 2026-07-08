@@ -153,29 +153,73 @@ public partial class MainViewModel : ObservableObject
     private async Task ChangeModeAsync(TradingMode mode)
     {
         LogActivity($"Switching to {ModeLabel(mode)}...");
-        await _brokerFactory.SwitchModeAsync(mode);
-        IsLiveMode = mode != TradingMode.Simulation;
-        TradingModeLabel = ModeLabel(mode);
-        // Reconnect with new broker
-        await ConnectAsync();
+        var oldMode = _config.AppSettings.Mode;
+
+        try
+        {
+            await _brokerFactory.SwitchModeAsync(mode);
+            IsLiveMode = mode != TradingMode.Simulation;
+            TradingModeLabel = ModeLabel(mode);
+            _config.AppSettings.Mode = mode;
+            await ConnectAsync();
+            _config.Save("appsettings.json", _config.AppSettings);
+        }
+        catch (Exception ex)
+        {
+            LogActivity($"Switch failed: {ex.Message}");
+            _selectedMode = ModeOptions.First(m => m.Mode == oldMode);
+            OnPropertyChanged(nameof(SelectedMode));
+            IsLiveMode = oldMode != TradingMode.Simulation;
+            TradingModeLabel = ModeLabel(oldMode);
+        }
     }
 
     [RelayCommand]
     private async Task ConnectAsync()
     {
         LogActivity("Connecting...");
-        await _broker.ConnectAsync();
-        await _marketData.ConnectAsync();
-        var accounts = await _broker.GetAccountsAsync();
+        try { await _broker.ConnectAsync(); }
+        catch (Exception ex)
+        {
+            LogActivity($"Connect failed: {ex.Message}");
+            return;
+        }
+
+        try { await _marketData.ConnectAsync(); }
+        catch (Exception ex)
+        {
+            LogActivity($"Market data connect failed: {ex.Message}");
+        }
+
+        IReadOnlyList<AccountInfo> accounts = [];
+        try { accounts = await _broker.GetAccountsAsync(); }
+        catch (Exception ex)
+        {
+            LogActivity($"GetAccounts failed: {ex.Message}");
+        }
+
         Accounts.Clear();
         foreach (var a in accounts) Accounts.Add(a);
-
-        if (accounts.Count > 0 && string.IsNullOrEmpty(SelectedAccountId))
+        if (accounts.Count == 0)
         {
-            SelectedAccountId = accounts[0].AccountId;
-            PositionViewModel.AccountId = SelectedAccountId;
-            DomViewModel.CurrentAccountId = SelectedAccountId;
-            OrderTicketViewModel.AccountId = SelectedAccountId;
+            LastToast = "No accounts returned. Verify Schwab token source and DB access.";
+        }
+
+        if (accounts.Count > 0)
+        {
+            var preferred = _config.AppSettings.DefaultAccountId;
+            var toUse = accounts.FirstOrDefault(a =>
+                !string.IsNullOrWhiteSpace(preferred) &&
+                string.Equals(a.AccountId, preferred, StringComparison.OrdinalIgnoreCase))?.AccountId
+                ?? accounts[0].AccountId;
+
+            if (string.IsNullOrEmpty(SelectedAccountId) || !accounts.Any(a => a.AccountId == SelectedAccountId))
+            {
+                SelectedAccountId = toUse;
+                PositionViewModel.AccountId = SelectedAccountId;
+                DomViewModel.CurrentAccountId = SelectedAccountId;
+                OrderTicketViewModel.AccountId = SelectedAccountId;
+            }
         }
 
         await RefreshBuyingPowerAsync();

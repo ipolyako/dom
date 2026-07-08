@@ -23,6 +23,7 @@
   <ItemGroup>
     <Content Include="..\config-examples\hotbuttons.json"      CopyToOutputDirectory="PreserveNewest" Link="hotbuttons.json"            ExcludeFromSingleFile="true"/>
     <Content Include="..\config-examples\hotkeys.json"         CopyToOutputDirectory="PreserveNewest" Link="hotkeys.json"               ExcludeFromSingleFile="true"/>
+    <Content Include="..\\..\\scripts\\test_fastdom_schwab_from_agentquant.py" CopyToOutputDirectory="PreserveNewest" Link="scripts\\test_fastdom_schwab_from_agentquant.py" ExcludeFromSingleFile="true"/>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FastDOM.Core\FastDOM.Core.csproj" />

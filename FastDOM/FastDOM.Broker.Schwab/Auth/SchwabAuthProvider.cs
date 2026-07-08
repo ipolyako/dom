@@ -3,6 +3,7 @@ using System.Text.Json;
 using FastDOM.Broker.Interfaces;
 using FastDOM.Infrastructure.Config;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace FastDOM.Broker.Schwab.Auth;
 
@@ -17,6 +18,7 @@ public class SchwabAuthProvider : IAuthProvider
     private readonly ILogger<SchwabAuthProvider> _logger;
     private readonly SchwabConfig _schwabConfig;
     private readonly DerbyTokenProvider _derby;
+    private readonly TokenSourceConfig _tokenSource;
     private readonly HttpClient _http;
 
     private string? _accessToken;
@@ -31,7 +33,7 @@ public class SchwabAuthProvider : IAuthProvider
     public DateTime? TokenExpiresAt =>
         _accessTokenExpiry == DateTime.MinValue ? null : _accessTokenExpiry;
 
-    // Derby tokens are always re-fetched on demand — no concept of refresh token expiry here
+    // Tokens are always exchanged on demand. Derby auth can still be sourced through JDBC bridge.
     public DateTime? RefreshTokenExpiresAt => null;
 
     public bool NeedsReauth => !IsAuthenticated;
@@ -39,16 +41,22 @@ public class SchwabAuthProvider : IAuthProvider
     public SchwabAuthProvider(
         ILogger<SchwabAuthProvider> logger,
         SchwabConfig schwabConfig,
-        DerbyTokenProvider derby)
+        DerbyTokenProvider derby,
+        TokenSourceConfig tokenSource)
     {
         _logger      = logger;
         _schwabConfig = schwabConfig;
         _derby       = derby;
+        _tokenSource = tokenSource;
         _http        = new HttpClient();
     }
 
     public async Task<bool> LoginAsync(CancellationToken ct = default)
     {
+        // Java-agentquant bridge is now the primary path (DB2 .NET provider removed).
+        if (await TryAgentQuantBridgeAsync(ct))
+            return true;
+
         try
         {
             var data = await _derby.GetTokenDataAsync(ct);
@@ -105,11 +113,186 @@ public class SchwabAuthProvider : IAuthProvider
         }
     }
 
+    private async Task<bool> TryAgentQuantBridgeAsync(CancellationToken ct)
+    {
+        var scriptPath = ResolveAgentQuantScriptPath();
+        if (string.IsNullOrWhiteSpace(scriptPath))
+        {
+            _logger.LogWarning("Agentquant bridge script was not found.");
+            return false;
+        }
+
+        var python = ResolvePythonExe();
+        if (string.IsNullOrWhiteSpace(python))
+        {
+            _logger.LogWarning("Python executable not found; cannot run agentquant bridge");
+            return false;
+        }
+
+        var args = BuildBridgeArguments(scriptPath);
+        var psi = new ProcessStartInfo
+        {
+            FileName = python,
+            Arguments = args,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        foreach (var kvp in BuildBridgeEnvironment())
+        {
+            psi.Environment[kvp.Key] = kvp.Value;
+        }
+
+        try
+        {
+            using var proc = Process.Start(psi);
+            if (proc == null)
+            {
+                _logger.LogWarning("Could not start Python bridge process");
+                return false;
+            }
+
+            var output = await proc.StandardOutput.ReadToEndAsync();
+            var error = await proc.StandardError.ReadToEndAsync();
+            await proc.WaitForExitAsync(ct);
+
+            if (proc.ExitCode != 0)
+            {
+                _logger.LogWarning("Agentquant bridge exited with code {Code}: {Error}", proc.ExitCode, error);
+                return false;
+            }
+
+            return TryApplyBridgeToken(output);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Agentquant bridge execution failed");
+            return false;
+        }
+    }
+
+    private string ResolveAgentQuantScriptPath()
+    {
+        var local = Path.Combine(AppContext.BaseDirectory, "scripts", "test_fastdom_schwab_from_agentquant.py");
+        if (File.Exists(local)) return local;
+
+        var dev = Path.Combine(AppContext.BaseDirectory, "..", "scripts", "test_fastdom_schwab_from_agentquant.py");
+        if (File.Exists(dev))
+            return Path.GetFullPath(dev);
+
+        return "";
+    }
+
+    private static string ResolvePythonExe()
+    {
+        var explicitPython = Environment.GetEnvironmentVariable("FASTDOM_PYTHON_EXE");
+        if (!string.IsNullOrWhiteSpace(explicitPython))
+            return explicitPython;
+
+        return "python";
+    }
+
+    private string BuildBridgeArguments(string scriptPath)
+    {
+        var args = new List<string>
+        {
+            QuoteArg(scriptPath),
+            "--include-access-token",
+            "--derby-jdbc-url",
+            QuoteArg(BuildDerbyJdbcUrl()),
+            "--derby-user",
+            QuoteArg(_tokenSource.User),
+            "--derby-password",
+            QuoteArg(_tokenSource.Password),
+            "--schwab-purpose",
+            QuoteArg(_tokenSource.Purpose)
+        };
+
+        if (!string.IsNullOrWhiteSpace(_tokenSource.AccountId))
+        {
+            args.Add("--schwab-account-id");
+            args.Add(QuoteArg(_tokenSource.AccountId));
+        }
+
+        var agentquantRoot = Environment.GetEnvironmentVariable("FASTDOM_AGENTQUANT_ROOT");
+        if (!string.IsNullOrWhiteSpace(agentquantRoot))
+        {
+            args.Add("--agentquant-root");
+            args.Add(QuoteArg(agentquantRoot));
+        }
+
+        return string.Join(" ", args);
+    }
+
+    private Dictionary<string, string> BuildBridgeEnvironment()
+    {
+        var env = new Dictionary<string, string>();
+
+        if (!string.IsNullOrWhiteSpace(_tokenSource.User))
+            env["DERBY_USER"] = _tokenSource.User;
+        if (!string.IsNullOrWhiteSpace(_tokenSource.Password))
+            env["DERBY_PASSWORD"] = _tokenSource.Password;
+
+        return env;
+    }
+
+    private string BuildDerbyJdbcUrl()
+    {
+        var host = string.IsNullOrWhiteSpace(_tokenSource.Host) ? "localhost" : _tokenSource.Host;
+        var db = string.IsNullOrWhiteSpace(_tokenSource.Database) ? "tradedb" : _tokenSource.Database;
+        return $"jdbc:derby://{host}:{_tokenSource.Port}/{db};create=false";
+    }
+
+    private static string QuoteArg(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
+
+    private bool TryApplyBridgeToken(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            _logger.LogWarning("Agentquant bridge returned empty output");
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(output);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("status", out var status) && status.GetString() == "ok")
+            {
+                var token = root.TryGetProperty("access_token", out var tokenEl) ? tokenEl.GetString() : "";
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    _logger.LogWarning("Agentquant bridge success payload did not include access_token");
+                    return false;
+                }
+
+                _accessToken = token;
+                var expiresIn = root.TryGetProperty("expires_in", out var exp) && exp.ValueKind == JsonValueKind.Number
+                    ? exp.GetInt32()
+                    : _schwabConfig.AccessTokenExpirySeconds;
+                _accessTokenExpiry = DateTime.UtcNow.AddSeconds(expiresIn - 60);
+                _logger.LogInformation(
+                    "Schwab access token obtained from agentquant bridge. Expires: {Exp}",
+                    _accessTokenExpiry);
+                return true;
+            }
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to parse agentquant bridge output");
+        }
+
+        _logger.LogWarning("Agentquant bridge output did not return a usable token");
+        return false;
+    }
+
     public async Task<string?> GetAccessTokenAsync(CancellationToken ct = default)
     {
         if (IsAuthenticated) return _accessToken;
 
-        _logger.LogInformation("Access token expired or missing — fetching from Derby...");
+        _logger.LogInformation("Access token expired or missing — fetching new access token...");
         if (await LoginAsync(ct)) return _accessToken;
 
         _logger.LogWarning("Could not obtain Schwab access token");

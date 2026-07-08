@@ -14,4 +14,6 @@ public class TokenSourceConfig
     public string AppSecretColumn     { get; set; } = "APPSECRET";
     public string AccountHashColumn   { get; set; } = "ACCOUNTHASH";
     public string RefreshTokenColumn  { get; set; } = "REFRESHTOKEN";
+    public string Purpose            { get; set; } = "TRADE";
+    public string AccountId          { get; set; } = "";
 }

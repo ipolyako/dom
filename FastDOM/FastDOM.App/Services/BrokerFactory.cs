@@ -59,7 +59,7 @@ public class BrokerFactory
         var cfg    = _config.SchwabConfig;
         var ts     = _config.TokenSource;
         var derby  = new DerbyTokenProvider(_loggerFactory.CreateLogger<DerbyTokenProvider>(), ts);
-        var auth   = new SchwabAuthProvider(_loggerFactory.CreateLogger<SchwabAuthProvider>(), cfg, derby);
+        var auth   = new SchwabAuthProvider(_loggerFactory.CreateLogger<SchwabAuthProvider>(), cfg, derby, _config.TokenSource);
         var mapper = new SchwabOrderMapper(_loggerFactory.CreateLogger<SchwabOrderMapper>());
         var broker = new SchwabBrokerClient(_loggerFactory.CreateLogger<SchwabBrokerClient>(), cfg, auth, mapper);
         var md     = new SchwabMarketDataClient(_loggerFactory.CreateLogger<SchwabMarketDataClient>(), cfg, auth);

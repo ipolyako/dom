@@ -241,7 +241,15 @@ public class SchwabBrokerClient : IBrokerClient
         {
             var resp = await _http.SendAsync(req, ct);
             if (resp.IsSuccessStatusCode)
-                return OrderResult.Ok(replacement.BrokerOrderId);
+            {
+                // Schwab returns 201 Created with Location: .../orders/{NEW_ID}.
+                // The old order becomes REPLACED; the new order gets a fresh id.
+                // Return that so OrderService can re-key its state under the new
+                // id and ignore the stale REPLACED stream update for the old one.
+                var newId = ExtractOrderIdFromLocation(resp.Headers.Location)
+                            ?? replacement.BrokerOrderId;
+                return OrderResult.Ok(newId);
+            }
 
             var responseBody = await resp.Content.ReadAsStringAsync(ct);
             return OrderResult.Fail(responseBody, (int)resp.StatusCode);
@@ -251,6 +259,16 @@ public class SchwabBrokerClient : IBrokerClient
             _logger.LogError(ex, "Schwab ReplaceOrder exception");
             return OrderResult.Fail(ex.Message);
         }
+    }
+
+    private static string? ExtractOrderIdFromLocation(Uri? location)
+    {
+        if (location == null) return null;
+        var path = location.IsAbsoluteUri ? location.AbsolutePath : location.OriginalString;
+        var idx = path.LastIndexOf('/');
+        if (idx < 0 || idx == path.Length - 1) return null;
+        var id = path[(idx + 1)..];
+        return string.IsNullOrWhiteSpace(id) ? null : id;
     }
 
     public async Task<OrderState?> GetOrderStatusAsync(string accountId, string brokerOrderId, CancellationToken ct = default)

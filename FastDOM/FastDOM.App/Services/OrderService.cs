@@ -183,7 +183,8 @@ public class OrderService
     public async Task<(bool success, string message)> ReplaceOrderAsync(
         string accountId, OrderReplace replacement)
     {
-        if (!_activeOrders.TryGetValue(replacement.BrokerOrderId, out var state))
+        var oldBrokerId = replacement.BrokerOrderId;
+        if (!_activeOrders.TryGetValue(oldBrokerId, out var state))
             return (false, "Order not found");
 
         state.Transition(OrderStatus.ReplacePending);
@@ -194,6 +195,21 @@ public class OrderService
         {
             if (replacement.NewLimitPrice.HasValue) state.LimitPrice = replacement.NewLimitPrice;
             if (replacement.NewStopPrice.HasValue) state.StopPrice = replacement.NewStopPrice;
+
+            // Alpaca's PATCH creates a NEW order with a NEW broker id and marks
+            // the old one Replaced. Schwab keeps the same id. If the broker gave
+            // us a fresh id, re-key the state under it and drop the old key so
+            // the stream update for the old id (status=replaced) doesn't hit us
+            // and terminate the state we're still using.
+            var newBrokerId = result.BrokerOrderId;
+            if (!string.IsNullOrEmpty(newBrokerId) && newBrokerId != oldBrokerId)
+            {
+                state.BrokerOrderId = newBrokerId;
+                _activeOrders[newBrokerId] = state;
+                _activeOrders.Remove(oldBrokerId);
+                _logger.LogInformation("Order re-keyed on replace: {Old} → {New}", oldBrokerId, newBrokerId);
+            }
+
             state.Transition(OrderStatus.Working);
         }
         else
@@ -253,6 +269,23 @@ public class OrderService
         }
         else if (update.ClientOrderId != null && _activeOrders.TryGetValue(update.ClientOrderId, out var byClient))
         {
+            // Guard against stale Replaced updates from Alpaca. Its PATCH-replace
+            // marks the OLD order Replaced and the stream then emits that terminal
+            // event with the SAME client_order_id — which would otherwise re-bind
+            // our state to the old broker id and mark it terminal, erasing the
+            // just-replaced live order from the DOM.
+            if (update.Status == OrderStatus.Replaced &&
+                !string.IsNullOrEmpty(byClient.BrokerOrderId) &&
+                !string.IsNullOrEmpty(update.BrokerOrderId) &&
+                byClient.BrokerOrderId != update.BrokerOrderId)
+            {
+                _logger.LogInformation(
+                    "Ignoring stale Replaced update for old id {Old}; state now tracks {New}",
+                    update.BrokerOrderId, byClient.BrokerOrderId);
+                _ = _audit.LogOrderStateChangeAsync(update);
+                return;
+            }
+
             byClient.BrokerOrderId = update.BrokerOrderId;
             byClient.Transition(update.Status);
             if (update.BrokerOrderId != null)

@@ -2,17 +2,15 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using FastDOM.App.ViewModels;
 using FastDOM.App.Services;
 using FastDOM.Core.Enums;
 using FastDOM.Core.Models;
-using FastDOM.App.ViewModels;
 
 namespace FastDOM.App.Views;
 
 public partial class DomView : UserControl
 {
-    private const double DragThreshold = 3.0;
-
     public static readonly RoutedEvent DomPriceLevelClickedEvent =
         EventManager.RegisterRoutedEvent("DomPriceLevelClicked", RoutingStrategy.Bubble,
             typeof(RoutedEventHandler), typeof(DomView));
@@ -35,15 +33,6 @@ public partial class DomView : UserControl
 
     private DomViewModel? ViewModel => DataContext as DomViewModel;
 
-    private bool _mouseDown;
-    private bool _isDragging;
-    private bool _ignoreCloseButton;
-    private Point _mouseDownPoint;
-    private int _dragStartIndex;
-    private DomLadderRow? _dragStartRow;
-    private OrderSide? _dragSide;
-    private List<OrderState> _dragOrders = [];
-
     public DomView()
     {
         InitializeComponent();
@@ -56,227 +45,96 @@ public partial class DomView : UserControl
         ViewModel.Rows.CollectionChanged += (_, _) => CenterOnLast();
     }
 
+    // Drag state for moving an existing working order to a new price.
+    // Cancel is intentionally only wired to the × button on the order marker —
+    // clicking anywhere else on an existing order starts (or is) a drag.
+    private OrderState[]? _dragOrders;
+    private Point _dragStartPos;
+    private const double DragThresholdPx = 3.0;
+
     private void DomRow_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement fe || fe.DataContext is not DomLadderRow row) return;
         if (ViewModel?.IsLocked == true) return;
-        if (IsCloseButtonInteraction(e.OriginalSource))
+
+        var modifiers = Keyboard.Modifiers;
+        var colIndex = GetColumnIndex(e.GetPosition(fe), fe.ActualWidth);
+
+        if (colIndex == 0 && row.BuyOrders.Count > 0)
         {
-            _ignoreCloseButton = true;
-            _mouseDown = false;
-            _isDragging = false;
-            _dragOrders = [];
-            _dragSide = null;
-            _dragStartRow = null;
-            _dragStartIndex = -1;
+            BeginOrderDrag(fe, e, row.BuyOrders.Where(o => o.BrokerOrderId != null).ToArray(), row.Price, OrderSide.Buy);
+            return;
+        }
+        if (colIndex == 4 && row.SellOrders.Count > 0)
+        {
+            BeginOrderDrag(fe, e, row.SellOrders.Where(o => o.BrokerOrderId != null).ToArray(), row.Price, OrderSide.Sell);
             return;
         }
 
-        _mouseDown = true;
-        _isDragging = false;
-        _ignoreCloseButton = false;
-        _mouseDownPoint = e.GetPosition(DomRows);
-        _dragStartRow = row;
-        _dragStartIndex = ViewModel?.Rows.IndexOf(row) ?? -1;
-        _dragOrders = [];
-        _dragSide = GetOrderSideFromSource(e.OriginalSource);
+        // No existing order in the clicked column — place a new one at the row price.
+        if (colIndex == 0)
+            ViewModel?.OnBuyColumnClicked(row.Price, modifiers);
+        else if (colIndex == 4)
+            ViewModel?.OnSellColumnClicked(row.Price, modifiers);
+        else
+            ViewModel?.OnBuyColumnClicked(row.Price, modifiers);
 
-        if (_dragSide == OrderSide.Buy)
-        {
-            _dragOrders = row.BuyOrders
-                .Where(o => o.LimitPrice.HasValue && !string.IsNullOrWhiteSpace(o.BrokerOrderId))
-                .ToList();
-        }
-        else if (_dragSide == OrderSide.Sell)
-        {
-            _dragOrders = row.SellOrders
-                .Where(o => o.LimitPrice.HasValue && !string.IsNullOrWhiteSpace(o.BrokerOrderId))
-                .ToList();
-        }
-
-        if (_dragSide == null || _dragOrders.Count == 0)
-            return;
-
-        fe.CaptureMouse();
+        RaiseEvent(new RoutedEventArgs(DomPriceLevelClickedEvent, this));
         e.Handled = true;
     }
 
-    private void DomRow_MouseMove(object sender, MouseEventArgs e)
+    private void BeginOrderDrag(FrameworkElement fe, MouseButtonEventArgs e, OrderState[] orders, decimal fromPrice, OrderSide side)
     {
-        if (!_mouseDown || _dragSide == null || ViewModel?.IsLocked == true)
-            return;
-
-        var point = e.GetPosition(DomRows);
-        if (!_isDragging &&
-            (Math.Abs(point.X - _mouseDownPoint.X) >= DragThreshold ||
-             Math.Abs(point.Y - _mouseDownPoint.Y) >= DragThreshold))
+        if (orders.Length == 0)
         {
-            _isDragging = true;
-            if (_dragOrders.Count == 0)
-                ViewModel?.ReportDragError("No draggable limit orders at this level. Drag a price level with limit order marker.");
+            ViewModel?.ReportDragError($"drag: 0 {side} orders with BrokerOrderId at {fromPrice:F2}");
+            return;
         }
+
+        _dragOrders = orders;
+        _dragFromPrice = fromPrice;
+        _dragStartPos = e.GetPosition(DomRows);
+        fe.CaptureMouse();
+        fe.Cursor = Cursors.SizeNS;
+        e.Handled = true;
     }
+
+    private decimal _dragFromPrice;
 
     private void DomRow_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (sender is not FrameworkElement fe || fe.DataContext is not DomLadderRow row) return;
-        if (_ignoreCloseButton || _dragStartRow == null)
-        {
-            ResetDragState(fe);
-            return;
-        }
-        if (ViewModel?.IsLocked == true)
-        {
-            ResetDragState(fe);
-            e.Handled = true;
-            return;
-        }
+        if (sender is not FrameworkElement fe) return;
+        fe.ReleaseMouseCapture();
+        fe.Cursor = Cursors.Hand;
 
-        if (_mouseDown && _dragSide != null)
-        {
-            var targetRow = HitTestRow(e.GetPosition(DomRows));
-            targetRow ??= ResolveTargetRowByOffset(e.GetPosition(DomRows));
-            var startRow = _dragStartRow;
-            if (!_isDragging)
-            {
-                if (_dragSide == OrderSide.Buy)
-                    _ = ViewModel.CancelOrdersAtPriceAsync(startRow.Price);
-                else if (_dragSide == OrderSide.Sell)
-                    _ = ViewModel.CancelOrdersAtPriceAsync(startRow.Price);
-            }
-            else if (_dragOrders.Count > 0 && targetRow is not null && startRow is not null && ViewModel is not null)
-            {
-                if (targetRow.Price != startRow.Price)
-                {
-                    foreach (var order in _dragOrders.ToList())
-                        ViewModel.OnOrderDragged(order, targetRow.Price);
-                }
-                else
-                {
-                    ViewModel?.ReportDragError("Drag target is the same price level.");
-                }
-            }
-            else
-            {
-                ViewModel?.ReportDragError("Drag target not found. Move to another visible DOM level before releasing.");
-            }
-        }
-        else
-        {
-            ExecuteRowClick(row, fe, e.GetPosition(fe), Keyboard.Modifiers);
-        }
+        if (_dragOrders is null || _dragOrders.Length == 0) return;
+        var orders = _dragOrders;
+        var fromPrice = _dragFromPrice;
+        _dragOrders = null;
 
-        ResetDragState(fe);
+        var endPos = e.GetPosition(DomRows);
+        var deltaY = Math.Abs(endPos.Y - _dragStartPos.Y);
+        if (deltaY < DragThresholdPx) return;
+
+        var target = FindRowAt(endPos);
+        if (target == null || target.Price == fromPrice) return;
+
+        foreach (var o in orders)
+            ViewModel?.OnOrderDragged(o, target.Price);
+
         e.Handled = true;
     }
 
-    private void ResetDragState(FrameworkElement source)
+    private DomLadderRow? FindRowAt(Point pos)
     {
-        _ignoreCloseButton = false;
-        _dragOrders = [];
-        _dragSide = null;
-        _dragStartRow = null;
-        _dragStartIndex = -1;
-        _mouseDown = false;
-        _isDragging = false;
-        source.ReleaseMouseCapture();
-    }
-
-    private static bool IsMarkerSource(object? source, string markerTag)
-    {
-        if (source is not DependencyObject node) return false;
-
-        while (node != null)
+        var hit = VisualTreeHelper.HitTest(DomRows, pos)?.VisualHit as DependencyObject;
+        while (hit != null)
         {
-            if (node is FrameworkElement fe && Equals(fe.Tag, markerTag))
-                return true;
-            node = VisualTreeHelper.GetParent(node);
-        }
-
-        return false;
-    }
-
-    private static OrderSide? GetOrderSideFromSource(object? source)
-    {
-        if (IsMarkerSource(source, "BuyOrderMarker")) return OrderSide.Buy;
-        if (IsMarkerSource(source, "SellOrderMarker")) return OrderSide.Sell;
-        return null;
-    }
-
-    private void ExecuteRowClick(DomLadderRow row, FrameworkElement rowHost, Point rowPoint, ModifierKeys modifiers)
-    {
-        if (ViewModel == null) return;
-
-        var colIndex = GetColumnIndex(rowPoint, rowHost.ActualWidth);
-        if (colIndex == 0)
-        {
-            if (ViewModel.HasBuyOrderAt(row.Price))
-                _ = ViewModel.CancelOrdersAtPriceAsync(row.Price);
-            else
-                ViewModel.OnBuyColumnClicked(row.Price, modifiers);
-        }
-        else if (colIndex == 4)
-        {
-            if (ViewModel.HasSellOrderAt(row.Price))
-                _ = ViewModel.CancelOrdersAtPriceAsync(row.Price);
-            else
-                ViewModel.OnSellColumnClicked(row.Price, modifiers);
-        }
-        else
-        {
-            ViewModel.OnBuyColumnClicked(row.Price, modifiers);
-        }
-
-        RaiseEvent(new RoutedEventArgs(DomPriceLevelClickedEvent, this));
-    }
-
-    private DomLadderRow? HitTestRow(Point localPoint)
-    {
-        if (DomRows == null) return null;
-
-        var result = VisualTreeHelper.HitTest(DomRows, localPoint);
-        var node = result?.VisualHit as DependencyObject;
-        while (node != null)
-        {
-            if (node is FrameworkElement fe && fe.DataContext is DomLadderRow row)
+            if (hit is FrameworkElement fe && fe.DataContext is DomLadderRow row)
                 return row;
-            node = VisualTreeHelper.GetParent(node);
+            hit = VisualTreeHelper.GetParent(hit);
         }
         return null;
-    }
-
-    private DomLadderRow? ResolveTargetRowByOffset(Point localPoint)
-    {
-        if (ViewModel == null || _dragStartRow == null || _dragStartIndex < 0)
-            return null;
-
-        var rowHeight = DomRows
-            .ItemContainerGenerator
-            .ContainerFromItem(_dragStartRow) is FrameworkElement rowHost &&
-            rowHost.ActualHeight > 0
-            ? rowHost.ActualHeight
-            : 20d;
-
-        var yDelta = localPoint.Y - _mouseDownPoint.Y;
-        var rowOffset = (int)Math.Round(yDelta / rowHeight, MidpointRounding.AwayFromZero);
-        if (rowOffset == 0) return _dragStartRow;
-
-        var targetIndex = Math.Clamp(_dragStartIndex + rowOffset, 0, Math.Max(0, ViewModel.Rows.Count - 1));
-        return ViewModel.Rows[targetIndex];
-    }
-
-    private static bool IsCloseButtonInteraction(object? source)
-    {
-        if (source is not DependencyObject node) return false;
-
-        while (node != null)
-        {
-            if (node is Button b && Equals(b.Tag, "DomCancelButton"))
-                return true;
-            node = VisualTreeHelper.GetParent(node);
-        }
-
-        return false;
     }
 
     private void DomRow_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -379,24 +237,5 @@ public partial class DomView : UserControl
             if (pt.X < x) return i;
         }
         return 4;
-    }
-
-    private static int GetColumnIndexFromSource(object source, FrameworkElement rowHost, Point pointInRow)
-    {
-        if (source is DependencyObject node)
-        {
-            while (node != null)
-            {
-                if (node is FrameworkElement fe && fe != rowHost)
-                {
-                    var col = Grid.GetColumn(fe);
-                    if (col >= 0 && col <= 4)
-                        return col;
-                }
-                node = VisualTreeHelper.GetParent(node);
-            }
-        }
-
-        return GetColumnIndex(pointInRow, rowHost.ActualWidth);
     }
 }

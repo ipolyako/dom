@@ -54,6 +54,7 @@ public partial class MainWindow : Window
         // Wire DOM click events
         _vm.DomViewModel.PriceLevelClicked += OnDomPriceLevelClickedInternal;
         _vm.DomViewModel.OrderMoveRequested += OnOrderMoveRequested;
+        _vm.DomViewModel.DragError += msg => Dispatcher.Invoke(() => _vm.LastToast = msg);
 
         // Wire hot buttons
         _vm.HotButtonsViewModel.ToastRequested += msg =>

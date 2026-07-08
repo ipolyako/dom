@@ -333,9 +333,24 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    // Cap the log at ~500 entries but trim in a single burst of 100 rather than
+    // RemoveAt(0) on every add. RemoveAt(0) is O(n) on ObservableCollection and
+    // raises a CollectionChanged Remove per call — expensive on a busy session
+    // (10-20 events/sec). Batching cuts that to 1 shift per 100 entries.
+    private const int LogCap = 500;
+    private const int LogTrimBatch = 100;
+
     private void AppendActivityEntry(string entry)
     {
-        if (ActivityLog.Count >= 500) ActivityLog.RemoveAt(0);
+        if (ActivityLog.Count >= LogCap)
+        {
+            // ObservableCollection has no RemoveRange, but Reset is a single
+            // notification: build a new list and swap contents.
+            var kept = new List<string>(LogCap);
+            for (int i = LogTrimBatch; i < ActivityLog.Count; i++) kept.Add(ActivityLog[i]);
+            ActivityLog.Clear();
+            foreach (var s in kept) ActivityLog.Add(s);
+        }
         ActivityLog.Add(entry);
     }
 }

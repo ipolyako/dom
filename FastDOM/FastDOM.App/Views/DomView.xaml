@@ -95,10 +95,9 @@
             <ItemsControl x:Name="DomRows" ItemsSource="{Binding Rows}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                            <Grid x:Name="DomRow" Height="20" Cursor="Hand"
-                              PreviewMouseLeftButtonDown="DomRow_MouseLeftButtonDown"
-                              PreviewMouseLeftButtonUp="DomRow_MouseLeftButtonUp"
-                              PreviewMouseMove="DomRow_MouseMove"
+                        <Grid x:Name="DomRow" Height="20" Cursor="Hand"
+                              MouseLeftButtonDown="DomRow_MouseLeftButtonDown"
+                              MouseLeftButtonUp="DomRow_MouseLeftButtonUp"
                               MouseRightButtonDown="DomRow_MouseRightButtonDown">
                             <Grid.Background>
                                 <MultiBinding Converter="{StaticResource RowBrush}">
@@ -116,26 +115,28 @@
                                 <ColumnDefinition Width="70"/>
                             </Grid.ColumnDefinitions>
 
-                            <!-- BUY orders at this price -->
+                            <!-- BUY orders at this price. Body of marker = drag zone. × on right edge = cancel. -->
                             <Border Grid.Column="0"
                                     Background="{Binding BuyOrders.Count, Converter={StaticResource OrderBrush}, ConverterParameter=Buy}"
                                     Margin="1">
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                            Visibility="{Binding HasBuyOrders, Converter={StaticResource BoolToVisibility}}"
-                                            Tag="BuyOrderMarker">
-                                    <TextBlock Text="{Binding BuyOrderSummary}"
-                                               FontFamily="Consolas" FontSize="11" FontWeight="Bold"
-                                               Foreground="#FF90EE90" VerticalAlignment="Center" Margin="2,0"/>
-                                    <Button Content="×" Width="14" Height="14" Padding="0" Margin="1,0,1,0"
-                                            FontSize="10" FontWeight="Bold"
-                                            Tag="DomCancelButton"
-                                            Background="#AA880000" Foreground="White" BorderThickness="0"
-                                            HorizontalAlignment="Right"
+                                <DockPanel Visibility="{Binding HasBuyOrders, Converter={StaticResource BoolToVisibility}}"
+                                           LastChildFill="True">
+                                    <Button DockPanel.Dock="Right" Content="×"
+                                            Width="16" Height="18" Padding="0" Margin="1,0"
+                                            FontSize="11" FontWeight="Bold"
+                                            Background="#DD880000" Foreground="White" BorderThickness="0"
                                             Cursor="Hand"
+                                            ToolTip="Cancel order(s) at this price"
                                             Command="{Binding DataContext.CancelAtPriceCommand,
                                                       RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding Price}"/>
-                                </StackPanel>
+                                    <TextBlock Text="{Binding BuyOrderSummary}"
+                                               FontFamily="Consolas" FontSize="11" FontWeight="Bold"
+                                               Foreground="#FF90EE90"
+                                               TextAlignment="Center" VerticalAlignment="Center"
+                                               Cursor="SizeNS"
+                                               ToolTip="Drag up/down to move this order to a new price"/>
+                                </DockPanel>
                             </Border>
 
                             <!-- Bid size bar -->
@@ -162,25 +163,28 @@
                                            Foreground="{StaticResource SecondaryForeBrush}"/>
                             </Grid>
 
-                            <!-- SELL orders at this price -->
+                            <!-- SELL orders at this price. × on left edge = cancel. Body = drag zone. -->
                             <Border Grid.Column="4"
                                     Background="{Binding SellOrders.Count, Converter={StaticResource OrderBrush}, ConverterParameter=Sell}"
                                     Margin="1">
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center"
-                                            Visibility="{Binding HasSellOrders, Converter={StaticResource BoolToVisibility}}"
-                                            Tag="SellOrderMarker">
-                                    <Button Content="×" Width="14" Height="14" Padding="0" Margin="1,0,1,0"
-                                            FontSize="10" FontWeight="Bold" Tag="DomCancelButton"
-                                            Background="#AA880000" Foreground="White" BorderThickness="0"
-                                            HorizontalAlignment="Left"
+                                <DockPanel Visibility="{Binding HasSellOrders, Converter={StaticResource BoolToVisibility}}"
+                                           LastChildFill="True">
+                                    <Button DockPanel.Dock="Left" Content="×"
+                                            Width="16" Height="18" Padding="0" Margin="1,0"
+                                            FontSize="11" FontWeight="Bold"
+                                            Background="#DD880000" Foreground="White" BorderThickness="0"
                                             Cursor="Hand"
+                                            ToolTip="Cancel order(s) at this price"
                                             Command="{Binding DataContext.CancelAtPriceCommand,
                                                       RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding Price}"/>
                                     <TextBlock Text="{Binding SellOrderSummary}"
                                                FontFamily="Consolas" FontSize="11" FontWeight="Bold"
-                                               Foreground="#FFFF9090" VerticalAlignment="Center" Margin="2,0"/>
-                                </StackPanel>
+                                               Foreground="#FFFF9090"
+                                               TextAlignment="Center" VerticalAlignment="Center"
+                                               Cursor="SizeNS"
+                                               ToolTip="Drag up/down to move this order to a new price"/>
+                                </DockPanel>
                             </Border>
 
                             <!-- Row grid line -->

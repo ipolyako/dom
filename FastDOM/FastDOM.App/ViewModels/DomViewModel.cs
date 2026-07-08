@@ -93,6 +93,8 @@ public partial class DomViewModel : ObservableObject
 
     private static void CopyRow(DomLadderRow src, DomLadderRow dst)
     {
+        // ObservableProperty setters no-op on equal values, so scalar assignment
+        // is free when nothing changed.
         dst.Price      = src.Price;
         dst.BidSize    = src.BidSize;
         dst.AskSize    = src.AskSize;
@@ -101,11 +103,29 @@ public partial class DomViewModel : ObservableObject
         dst.IsLast     = src.IsLast;
         dst.IsPosition = src.IsPosition;
 
-        dst.BuyOrders.Clear();
-        foreach (var o in src.BuyOrders) dst.BuyOrders.Add(o);
+        // BuyOrders / SellOrders are ObservableCollections. Every Clear + Add
+        // raises CollectionChanged, DomLadderRow re-fires OnPropertyChanged for
+        // Summary/HasOrders, and the row template rebinds — costly at 30 fps.
+        // Skip the churn when the underlying set of orders is unchanged.
+        SyncOrderList(src.BuyOrders,  dst.BuyOrders);
+        SyncOrderList(src.SellOrders, dst.SellOrders);
+    }
 
-        dst.SellOrders.Clear();
-        foreach (var o in src.SellOrders) dst.SellOrders.Add(o);
+    private static void SyncOrderList(
+        ObservableCollection<OrderState> src,
+        ObservableCollection<OrderState> dst)
+    {
+        if (src.Count == dst.Count)
+        {
+            bool same = true;
+            for (int i = 0; i < src.Count; i++)
+            {
+                if (!ReferenceEquals(src[i], dst[i])) { same = false; break; }
+            }
+            if (same) return;
+        }
+        dst.Clear();
+        foreach (var o in src) dst.Add(o);
     }
 
     // Called by DOM view on left-click buy column

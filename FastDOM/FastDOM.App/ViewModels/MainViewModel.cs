@@ -216,14 +216,16 @@ public partial class MainViewModel : ObservableObject
             if (string.IsNullOrEmpty(SelectedAccountId) || !accounts.Any(a => a.AccountId == SelectedAccountId))
             {
                 SelectedAccountId = toUse;
+            }
+            else
+            {
                 PositionViewModel.AccountId = SelectedAccountId;
                 DomViewModel.CurrentAccountId = SelectedAccountId;
                 OrderTicketViewModel.AccountId = SelectedAccountId;
             }
         }
 
-        await RefreshBuyingPowerAsync();
-        await ChangeSymbolAsync();
+        await RefreshForSelectedAccountAsync(SelectedAccountId);
         LogActivity($"Connected. Mode: {TradingModeLabel}");
     }
 
@@ -258,6 +260,24 @@ public partial class MainViewModel : ObservableObject
             });
         }
         catch { /* non-critical — buying power display stays at last value */ }
+    }
+
+    private async Task RefreshForSelectedAccountAsync(string accountId)
+    {
+        if (string.IsNullOrWhiteSpace(accountId)) return;
+
+        try
+        {
+            DomViewModel.WorkingOrders.Clear();
+            await _orderService.SyncOrdersAsync(accountId);
+        }
+        catch
+        {
+            // Non-blocking: if sync fails, fall back to existing cached orders and continue refresh.
+        }
+
+        await RefreshBuyingPowerAsync();
+        await ChangeSymbolAsync();
     }
 
     [RelayCommand]
@@ -350,6 +370,8 @@ public partial class MainViewModel : ObservableObject
         OrderTicketViewModel.AccountId = value;
         PositionViewModel.AccountId = value;
         OnPropertyChanged(nameof(SelectedAccountDisplay));
+
+        _ = RefreshForSelectedAccountAsync(value);
     }
 
     partial void OnSelectedSymbolChanged(string value)

@@ -51,7 +51,7 @@
                           ItemsSource="{Binding Accounts}"
                           DisplayMemberPath="DisplayName"
                           SelectedValuePath="AccountId"
-                          SelectedValue="{Binding SelectedAccountId}"
+                          SelectedValue="{Binding SelectedAccountId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                           BorderBrush="{Binding IsConnected, Converter={StaticResource ConnBrushConverter}}"
                           BorderThickness="2"
                           ToolTip="{Binding SelectedAccountId}"/>

@@ -60,77 +60,110 @@ public class DomService : IDisposable
         await _marketData.UnsubscribeDepthAsync(symbol);
     }
 
-    public List<DomLadderRow> BuildLadder(
+    // Scratch dictionaries reused every tick to avoid allocations.
+    private readonly Dictionary<decimal, int> _bidSizesScratch = new();
+    private readonly Dictionary<decimal, int> _askSizesScratch = new();
+    private readonly Dictionary<decimal, List<OrderState>> _buyOrdersScratch = new();
+    private readonly Dictionary<decimal, List<OrderState>> _sellOrdersScratch = new();
+    private static readonly List<OrderState> _emptyOrders = new();
+
+    // Mutates target in place: no per-tick List<DomLadderRow> / DomLadderRow /
+    // Dictionary allocations, no LINQ. Existing rows are updated; extra rows
+    // appended or removed at the tail only.
+    public void PopulateLadder(
+        ObservableCollection<DomLadderRow> target,
         int visibleLevels,
         IEnumerable<OrderState> workingOrders,
         Position? position)
     {
-        if (_currentQuote == null) return [];
+        if (_currentQuote == null) { target.Clear(); return; }
 
-        decimal center = _currentQuote.Last;
-        decimal tick = _symbolInfo.TickSize;
-        int halfLevels = visibleLevels / 2;
+        _bidSizesScratch.Clear();
+        _askSizesScratch.Clear();
+        _buyOrdersScratch.Clear();
+        _sellOrdersScratch.Clear();
 
-        var rows = new List<DomLadderRow>(visibleLevels);
-
-        // Build depth lookup
-        var bidSizes = new Dictionary<decimal, int>();
-        var askSizes = new Dictionary<decimal, int>();
         if (_currentDepth != null)
         {
-            foreach (var b in _currentDepth.Bids) bidSizes[b.Price] = b.BidSize;
-            foreach (var a in _currentDepth.Asks) askSizes[a.Price] = a.AskSize;
+            foreach (var b in _currentDepth.Bids) _bidSizesScratch[b.Price] = b.BidSize;
+            foreach (var a in _currentDepth.Asks) _askSizesScratch[a.Price] = a.AskSize;
         }
 
-        // Working order lookup — market orders pinned to best quote (ask for buys, bid for sells)
+        decimal center = _currentQuote.Last;
+        decimal tick   = _symbolInfo.TickSize;
+        int halfLevels = visibleLevels / 2;
+        bool hasRealDepth = _currentDepth?.HasRealDepth ?? false;
+
+        // Market orders pin to best quote (ask for buys, bid for sells).
         decimal mktBuyPrice  = _symbolInfo.RoundToTick(_currentQuote.Ask > 0 ? _currentQuote.Ask : center);
         decimal mktSellPrice = _symbolInfo.RoundToTick(_currentQuote.Bid > 0 ? _currentQuote.Bid : center);
 
-        var buyOrders = workingOrders
-            .Where(o => o.IsWorking && o.Side == Core.Enums.OrderSide.Buy)
-            .GroupBy(o => o.LimitPrice.HasValue
-                ? _symbolInfo.RoundToTick(o.LimitPrice.Value)
-                : mktBuyPrice)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        foreach (var o in workingOrders)
+        {
+            if (!o.IsWorking) continue;
+            var side = o.Side;
+            var dict = side == Core.Enums.OrderSide.Buy ? _buyOrdersScratch : _sellOrdersScratch;
+            var key  = o.LimitPrice.HasValue
+                       ? _symbolInfo.RoundToTick(o.LimitPrice.Value)
+                       : (side == Core.Enums.OrderSide.Buy ? mktBuyPrice : mktSellPrice);
+            if (!dict.TryGetValue(key, out var list)) { list = new List<OrderState>(2); dict[key] = list; }
+            list.Add(o);
+        }
 
-        var sellOrders = workingOrders
-            .Where(o => o.IsWorking && o.Side == Core.Enums.OrderSide.Sell)
-            .GroupBy(o => o.LimitPrice.HasValue
-                ? _symbolInfo.RoundToTick(o.LimitPrice.Value)
-                : mktSellPrice)
-            .ToDictionary(g => g.Key, g => g.ToList());
-
+        decimal bidPrice = _symbolInfo.RoundToTick(_currentQuote.Bid);
+        decimal askPrice = _symbolInfo.RoundToTick(_currentQuote.Ask);
+        decimal lastPrice = _symbolInfo.RoundToTick(_currentQuote.Last);
         decimal positionPrice = position?.AverageCost ?? 0;
+        decimal positionRounded = position != null && !position.IsFlat ? _symbolInfo.RoundToTick(positionPrice) : 0m;
+        bool hasPosition = position != null && !position.IsFlat;
 
+        int rowIndex = 0;
         for (int i = halfLevels; i >= -halfLevels; i--)
         {
             decimal price = _symbolInfo.RoundToTick(center + i * tick);
-            bool isBid = price == _symbolInfo.RoundToTick(_currentQuote.Bid);
-            bool isAsk = price == _symbolInfo.RoundToTick(_currentQuote.Ask);
-            bool isLast = price == _symbolInfo.RoundToTick(_currentQuote.Last);
-            bool isPosition = position != null && !position.IsFlat &&
-                              price == _symbolInfo.RoundToTick(positionPrice);
+            bool isBid = price == bidPrice;
+            bool isAsk = price == askPrice;
+            bool isLast = price == lastPrice;
+            bool isPosition = hasPosition && price == positionRounded;
 
-            int bidSize = bidSizes.GetValueOrDefault(price, isBid ? _currentQuote.BidSize : 0);
-            int askSize = askSizes.GetValueOrDefault(price, isAsk ? _currentQuote.AskSize : 0);
+            int bidSize = _bidSizesScratch.GetValueOrDefault(price, isBid ? _currentQuote.BidSize : 0);
+            int askSize = _askSizesScratch.GetValueOrDefault(price, isAsk ? _currentQuote.AskSize : 0);
 
-            var row = new DomLadderRow
-            {
-                Price        = price,
-                BidSize      = bidSize,
-                AskSize      = askSize,
-                IsBid        = isBid,
-                IsAsk        = isAsk,
-                IsLast       = isLast,
-                IsPosition   = isPosition,
-                HasRealDepth = _currentDepth?.HasRealDepth ?? false
-            };
-            foreach (var o in buyOrders.GetValueOrDefault(price, []))  row.BuyOrders.Add(o);
-            foreach (var o in sellOrders.GetValueOrDefault(price, [])) row.SellOrders.Add(o);
-            rows.Add(row);
+            DomLadderRow row;
+            if (rowIndex < target.Count) row = target[rowIndex];
+            else { row = new DomLadderRow(); target.Add(row); }
+
+            row.Price        = price;
+            row.BidSize      = bidSize;
+            row.AskSize      = askSize;
+            row.IsBid        = isBid;
+            row.IsAsk        = isAsk;
+            row.IsLast       = isLast;
+            row.IsPosition   = isPosition;
+            row.HasRealDepth = hasRealDepth;
+
+            SyncOrderList(_buyOrdersScratch.GetValueOrDefault(price, _emptyOrders),  row.BuyOrders);
+            SyncOrderList(_sellOrdersScratch.GetValueOrDefault(price, _emptyOrders), row.SellOrders);
+
+            rowIndex++;
         }
 
-        return rows;
+        while (target.Count > rowIndex) target.RemoveAt(target.Count - 1);
+    }
+
+    private static void SyncOrderList(IReadOnlyList<OrderState> src, ObservableCollection<OrderState> dst)
+    {
+        if (src.Count == dst.Count)
+        {
+            bool same = true;
+            for (int i = 0; i < src.Count; i++)
+            {
+                if (!ReferenceEquals(src[i], dst[i])) { same = false; break; }
+            }
+            if (same) return;
+        }
+        dst.Clear();
+        for (int i = 0; i < src.Count; i++) dst.Add(src[i]);
     }
 
     private void OnQuote(Quote q)

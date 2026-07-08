@@ -76,56 +76,8 @@ public partial class DomViewModel : ObservableObject
 
     private void RebuildLadder()
     {
-        var rows = _domService.BuildLadder(VisibleLevels, WorkingOrders, CurrentPosition);
-        HasDepth = rows.FirstOrDefault()?.HasRealDepth ?? false;
-
-        // Update existing rows in place to minimize UI churn
-        for (int i = 0; i < rows.Count; i++)
-        {
-            if (i < Rows.Count)
-                CopyRow(rows[i], Rows[i]);
-            else
-                Rows.Add(rows[i]);
-        }
-        while (Rows.Count > rows.Count)
-            Rows.RemoveAt(Rows.Count - 1);
-    }
-
-    private static void CopyRow(DomLadderRow src, DomLadderRow dst)
-    {
-        // ObservableProperty setters no-op on equal values, so scalar assignment
-        // is free when nothing changed.
-        dst.Price      = src.Price;
-        dst.BidSize    = src.BidSize;
-        dst.AskSize    = src.AskSize;
-        dst.IsBid      = src.IsBid;
-        dst.IsAsk      = src.IsAsk;
-        dst.IsLast     = src.IsLast;
-        dst.IsPosition = src.IsPosition;
-
-        // BuyOrders / SellOrders are ObservableCollections. Every Clear + Add
-        // raises CollectionChanged, DomLadderRow re-fires OnPropertyChanged for
-        // Summary/HasOrders, and the row template rebinds — costly at 30 fps.
-        // Skip the churn when the underlying set of orders is unchanged.
-        SyncOrderList(src.BuyOrders,  dst.BuyOrders);
-        SyncOrderList(src.SellOrders, dst.SellOrders);
-    }
-
-    private static void SyncOrderList(
-        ObservableCollection<OrderState> src,
-        ObservableCollection<OrderState> dst)
-    {
-        if (src.Count == dst.Count)
-        {
-            bool same = true;
-            for (int i = 0; i < src.Count; i++)
-            {
-                if (!ReferenceEquals(src[i], dst[i])) { same = false; break; }
-            }
-            if (same) return;
-        }
-        dst.Clear();
-        foreach (var o in src) dst.Add(o);
+        _domService.PopulateLadder(Rows, VisibleLevels, WorkingOrders, CurrentPosition);
+        HasDepth = Rows.Count > 0 && Rows[0].HasRealDepth;
     }
 
     // Called by DOM view on left-click buy column

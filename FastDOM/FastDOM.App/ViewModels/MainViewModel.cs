@@ -245,7 +245,9 @@ public partial class MainViewModel : ObservableObject
 
     private void OnOrderStateChanged(OrderState state)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        // BeginInvoke @ Background: doesn't block the broker/stream thread, and
+        // WPF coalesces bursts of same-priority operations.
+        Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
             var priceStr = state.AverageFillPrice.HasValue
                 ? $" @{state.AverageFillPrice:F2}"
@@ -263,20 +265,33 @@ public partial class MainViewModel : ObservableObject
                 _ = PositionViewModel.RefreshAsync(SelectedAccountId, state.Symbol);
                 _ = RefreshBuyingPowerAsync();
             }
-        });
+        }));
     }
+
+    // Quote stream fires many times per second on a busy symbol. Instead of
+    // marshaling per-tick, latch the newest quote and let a 60ms Render-priority
+    // pump apply it. Multiple bursty ticks collapse to a single UI update.
+    private FastDOM.MarketData.Models.Quote? _latestQuote;
+    private bool _quoteFlushScheduled;
 
     private void OnQuoteUpdated(FastDOM.MarketData.Models.Quote q)
     {
-        Application.Current.Dispatcher.Invoke(() =>
-        {
-            if (q.Symbol != SelectedSymbol) return;
-            QuoteDisplay = $"{q.Last:F2}  B:{q.Bid:F2} x {q.BidSize}  A:{q.Ask:F2} x {q.AskSize}" +
-                           $"  Chg:{q.NetChange:+0.00;-0.00}  Vol:{q.Volume:N0}";
-            MarketDataStale = q.IsStale(_config.RiskProfile.MarketDataStaleMs);
-            PositionViewModel.UpdateFromQuote(q.Last);
-            OrderTicketViewModel.LastPrice = q.Last;
-        });
+        _latestQuote = q;
+        if (_quoteFlushScheduled) return;
+        _quoteFlushScheduled = true;
+        Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(FlushLatestQuote));
+    }
+
+    private void FlushLatestQuote()
+    {
+        _quoteFlushScheduled = false;
+        var q = _latestQuote;
+        if (q == null || q.Symbol != SelectedSymbol) return;
+        QuoteDisplay = $"{q.Last:F2}  B:{q.Bid:F2} x {q.BidSize}  A:{q.Ask:F2} x {q.AskSize}" +
+                       $"  Chg:{q.NetChange:+0.00;-0.00}  Vol:{q.Volume:N0}";
+        MarketDataStale = q.IsStale(_config.RiskProfile.MarketDataStaleMs);
+        PositionViewModel.UpdateFromQuote(q.Last);
+        OrderTicketViewModel.LastPrice = q.Last;
     }
 
     public string SelectedAccountDisplay =>
@@ -312,11 +327,11 @@ public partial class MainViewModel : ObservableObject
 
     private void ShowToast(string message)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
             LastToast = message;
             LogActivity(message);
-        });
+        }));
     }
 
     private void LogActivity(string message)

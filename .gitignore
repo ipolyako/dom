@@ -9,10 +9,13 @@ publish/alpaca.json
 publish/token.source.json
 publish/logs/
 
-# User secrets / credentials — exclude real configs but allow config-examples/
+# User secrets / credentials — block real credential filenames EVERYWHERE.
+# The templates live under config-examples/ with `.example.` in the name so
+# they don't collide with these rules. Never remove or un-ignore these lines.
 **/appsettings.local.json
 **/broker.schwab.json
-!**/config-examples/broker.schwab.json
+**/alpaca.json
+**/token.source.json
 
 # OS / IDE
 .vs/

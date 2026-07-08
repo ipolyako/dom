@@ -34,6 +34,14 @@ These three files hold credentials and MUST be created on each new machine:
 
 The Schwab **App Secret** is not in any JSON file. It is stored via Windows DPAPI (encrypted per-user, per-machine) and will be prompted for the first time you connect to Schwab.
 
+### ⚠️ Where credentials go — and don't go
+
+**Real credentials go in `publish/` next to the exe.** That's the only folder the running app reads from.
+
+**Never put real credentials in `FastDOM/config-examples/`.** That folder is a build-time template source — it's committed to git, and any real values there will be pushed to GitHub. Templates in that folder are named `*.example.json` (e.g. `alpaca.example.json`, `broker.schwab.example.json`) to make the distinction obvious. If an AI is tempted to write `FastDOM/config-examples/alpaca.json`, it must stop: that filename is gitignored globally *and* the app wouldn't read it there anyway.
+
+Rule for the AI: filenames without `.example.` in them (`alpaca.json`, `broker.schwab.json`, `token.source.json`) only ever live under `publish/`. Never anywhere else in the repo.
+
 ---
 
 ## Setup steps

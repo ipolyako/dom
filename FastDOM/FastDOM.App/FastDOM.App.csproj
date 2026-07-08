@@ -15,8 +15,8 @@
   <!-- Example configs ship next to the exe; ConfigManager auto-copies to real files on first run -->
   <ItemGroup>
     <Content Include="..\config-examples\appsettings.json"     CopyToOutputDirectory="PreserveNewest" Link="appsettings.example.json"   ExcludeFromSingleFile="true"/>
-    <Content Include="..\config-examples\broker.schwab.json"   CopyToOutputDirectory="PreserveNewest" Link="broker.schwab.example.json" ExcludeFromSingleFile="true"/>
-    <Content Include="..\config-examples\alpaca.json"          CopyToOutputDirectory="PreserveNewest" Link="alpaca.example.json"        ExcludeFromSingleFile="true"/>
+    <Content Include="..\config-examples\broker.schwab.example.json"   CopyToOutputDirectory="PreserveNewest" Link="broker.schwab.example.json" ExcludeFromSingleFile="true"/>
+    <Content Include="..\config-examples\alpaca.example.json"          CopyToOutputDirectory="PreserveNewest" Link="alpaca.example.json"        ExcludeFromSingleFile="true"/>
     <Content Include="..\config-examples\risk.profile.json"    CopyToOutputDirectory="PreserveNewest" Link="risk.profile.example.json"  ExcludeFromSingleFile="true"/>
   </ItemGroup>
   <!-- Non-sensitive portable configs ship as live files — no credentials, safe to include directly -->

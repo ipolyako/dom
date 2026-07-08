@@ -77,18 +77,9 @@ public partial class HotButtonsViewModel : ObservableObject
             btn.OrderType, quote, position);
     }
 
-    // Maps hotkey ActionType strings → HotButtonAction. Hotkey strings intentionally differ
-    // from enum names (e.g. "FlattenSymbol" vs Flatten) to allow config versioning.
-    private static readonly Dictionary<string, HotButtonAction> _hotkeyMap =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["BuyMarketableLimit"]  = HotButtonAction.BuyMarketableLimit,
-            ["SellMarketableLimit"] = HotButtonAction.SellMarketableLimit,
-            ["FlattenSymbol"]       = HotButtonAction.Flatten,
-            ["ReversePosition"]     = HotButtonAction.Reverse,
-            ["CancelAllSymbol"]     = HotButtonAction.CancelSymbol,
-            ["CancelAllAccount"]    = HotButtonAction.CancelAll,
-        };
+    // Maps hotkey ActionType strings → HotButtonAction (shared with HotkeyService.ActionTypeMap).
+    private static readonly IReadOnlyDictionary<string, HotButtonAction> _hotkeyMap =
+        HotkeyService.ActionTypeMap;
 
     public async Task ExecuteActionAsync(string actionType, string symbol, string accountId,
         int defaultSize, Quote? quote = null, Position? position = null)

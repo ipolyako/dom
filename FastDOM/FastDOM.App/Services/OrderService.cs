@@ -47,6 +47,25 @@ public class OrderService
         var sw = Stopwatch.StartNew();
 
         // 1. Local validation
+        if (IsStopOrder(request.OrderType) && request.StopPrice.HasValue && quote != null)
+        {
+            var mid = quote.Last > 0 ? quote.Last : (quote.Ask + quote.Bid) / 2m;
+            if (mid > 0)
+            {
+                var msg = request.Side == OrderSide.Buy && request.StopPrice <= mid
+                    ? $"Buy stop price {request.StopPrice:F2} must be above current price {mid:F2}"
+                    : request.Side == OrderSide.Sell && request.StopPrice >= mid
+                    ? $"Sell stop price {request.StopPrice:F2} must be below current price {mid:F2}"
+                    : null;
+                if (msg != null)
+                {
+                    _logger.LogWarning("Stop order rejected locally: {Reason}", msg);
+                    ToastRequested?.Invoke($"REJECTED: {msg}");
+                    return (false, msg);
+                }
+            }
+        }
+
         var validation = _risk.ValidateOrder(request, account, quote);
         if (!validation.IsValid)
         {
@@ -204,6 +223,9 @@ public class OrderService
         }
         _logger.LogInformation("Synced {Count} orders for {Account}", orders.Count, accountId);
     }
+
+    private static bool IsStopOrder(OrderType t) =>
+        t is OrderType.StopMarket or OrderType.StopLimit;
 
     private void OnBrokerOrderUpdate(OrderState update)
     {

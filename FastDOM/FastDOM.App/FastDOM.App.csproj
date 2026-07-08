@@ -19,6 +19,11 @@
     <Content Include="..\config-examples\alpaca.json"          CopyToOutputDirectory="PreserveNewest" Link="alpaca.example.json"        ExcludeFromSingleFile="true"/>
     <Content Include="..\config-examples\risk.profile.json"    CopyToOutputDirectory="PreserveNewest" Link="risk.profile.example.json"  ExcludeFromSingleFile="true"/>
   </ItemGroup>
+  <!-- Non-sensitive portable configs ship as live files — no credentials, safe to include directly -->
+  <ItemGroup>
+    <Content Include="..\config-examples\hotbuttons.json"      CopyToOutputDirectory="PreserveNewest" Link="hotbuttons.json"            ExcludeFromSingleFile="true"/>
+    <Content Include="..\config-examples\hotkeys.json"         CopyToOutputDirectory="PreserveNewest" Link="hotkeys.json"               ExcludeFromSingleFile="true"/>
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FastDOM.Core\FastDOM.Core.csproj" />
     <ProjectReference Include="..\FastDOM.Broker\FastDOM.Broker.csproj" />

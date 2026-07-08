@@ -75,5 +75,18 @@ public class HotkeyService : IDisposable
     public HotkeyBinding? FindBinding(string actionType) =>
         _config.Bindings.FirstOrDefault(b => b.ActionType == actionType);
 
+    // Maps fixed hotkey ActionType strings → HotButtonAction enum.
+    // Kept here so both HotButtonsViewModel and HotButtonSettingsWindow share one source of truth.
+    public static readonly IReadOnlyDictionary<string, FastDOM.Core.Models.HotButtonAction> ActionTypeMap =
+        new Dictionary<string, FastDOM.Core.Models.HotButtonAction>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["BuyMarketableLimit"]  = FastDOM.Core.Models.HotButtonAction.BuyMarketableLimit,
+            ["SellMarketableLimit"] = FastDOM.Core.Models.HotButtonAction.SellMarketableLimit,
+            ["FlattenSymbol"]       = FastDOM.Core.Models.HotButtonAction.Flatten,
+            ["ReversePosition"]     = FastDOM.Core.Models.HotButtonAction.Reverse,
+            ["CancelAllSymbol"]     = FastDOM.Core.Models.HotButtonAction.CancelSymbol,
+            ["CancelAllAccount"]    = FastDOM.Core.Models.HotButtonAction.CancelAll,
+        };
+
     public void Dispose() { }
 }

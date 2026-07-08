@@ -141,24 +141,13 @@ public partial class HotButtonSettingsWindow : Window
         }
     }
 
-    // Returns a warning string if the gesture conflicts with a fixed hotkey or another button, null if clean.
+    // Returns a warning string if another button already uses this gesture, null if clean.
     private string? GetShortcutConflict(string gesture, string currentEditId)
     {
-        // Check fixed hotkey bindings
-        var fixedBinding = _configManager.HotkeyConfig.Bindings.FirstOrDefault(b =>
-            b.IsEnabled &&
-            string.Equals(b.KeyGesture, gesture, StringComparison.OrdinalIgnoreCase));
-        if (fixedBinding != null)
-            return $"⚠ '{gesture}' is also a fixed hotkey ({fixedBinding.ActionType}). Hot button will take priority.";
-
-        // Check other buttons for duplicate shortcuts
         var dupe = Edits.FirstOrDefault(ed =>
             ed.Id != currentEditId &&
             string.Equals(ed.KeyboardShortcut, gesture, StringComparison.OrdinalIgnoreCase));
-        if (dupe != null)
-            return $"⚠ '{gesture}' is already assigned to '{dupe.Label}'.";
-
-        return null;
+        return dupe != null ? $"⚠ '{gesture}' is already assigned to '{dupe.Label}'." : null;
     }
 
     private void ApplyTemplate_Click(object sender, RoutedEventArgs e)
@@ -182,18 +171,12 @@ public partial class HotButtonSettingsWindow : Window
     {
         ButtonsGrid.CommitEdit(DataGridEditingUnit.Row, exitEditingMode: true);
 
-        // Collect shortcut conflicts before saving
+        // Collect duplicate shortcut conflicts before saving
         var conflicts = new List<string>();
         var seenGestures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var edit in Edits.Where(ed => !string.IsNullOrWhiteSpace(ed.KeyboardShortcut)))
         {
             var gesture = edit.KeyboardShortcut!;
-            var fixedBinding = _configManager.HotkeyConfig.Bindings.FirstOrDefault(b =>
-                b.IsEnabled &&
-                string.Equals(b.KeyGesture, gesture, StringComparison.OrdinalIgnoreCase));
-            if (fixedBinding != null)
-                conflicts.Add($"  '{gesture}' on '{edit.Label}' conflicts with fixed hotkey '{fixedBinding.ActionType}' (hot button wins)");
-
             if (seenGestures.TryGetValue(gesture, out var firstLabel))
                 conflicts.Add($"  '{gesture}' is assigned to both '{firstLabel}' and '{edit.Label}'");
             else

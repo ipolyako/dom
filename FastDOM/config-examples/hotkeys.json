@@ -1,0 +1,139 @@
+{
+  "Bindings": [
+    {
+      "Id": "buy_mkt",
+      "Label": "Buy Marketable Limit",
+      "KeyGesture": "Ctrl+B",
+      "ActionType": "BuyMarketableLimit",
+      "RequireDoublePress": false,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": false
+    },
+    {
+      "Id": "sell_mkt",
+      "Label": "Sell Marketable Limit",
+      "KeyGesture": "Ctrl+S",
+      "ActionType": "SellMarketableLimit",
+      "RequireDoublePress": false,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": false
+    },
+    {
+      "Id": "flatten",
+      "Label": "Flatten Symbol",
+      "KeyGesture": "Ctrl+F",
+      "ActionType": "FlattenSymbol",
+      "RequireDoublePress": true,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": true
+    },
+    {
+      "Id": "reverse",
+      "Label": "Reverse Position",
+      "KeyGesture": "Ctrl+R",
+      "ActionType": "ReversePosition",
+      "RequireDoublePress": true,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": true
+    },
+    {
+      "Id": "cancel_sym",
+      "Label": "Cancel All Symbol",
+      "KeyGesture": "Ctrl+X",
+      "ActionType": "CancelAllSymbol",
+      "RequireDoublePress": false,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": false
+    },
+    {
+      "Id": "cancel_all",
+      "Label": "Cancel All Account",
+      "KeyGesture": "Ctrl+Shift+X",
+      "ActionType": "CancelAllAccount",
+      "RequireDoublePress": false,
+      "RequireConfirmation": true,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": true
+    },
+    {
+      "Id": "size_1",
+      "Label": "Share Size Preset 1",
+      "KeyGesture": "Ctrl+D1",
+      "ActionType": "SetSizePreset1",
+      "RequireDoublePress": false,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": false
+    },
+    {
+      "Id": "size_2",
+      "Label": "Share Size Preset 2",
+      "KeyGesture": "Ctrl+D2",
+      "ActionType": "SetSizePreset2",
+      "RequireDoublePress": false,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": false
+    },
+    {
+      "Id": "size_3",
+      "Label": "Share Size Preset 3",
+      "KeyGesture": "Ctrl+D3",
+      "ActionType": "SetSizePreset3",
+      "RequireDoublePress": false,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": false
+    },
+    {
+      "Id": "price_up",
+      "Label": "Increase Order Price",
+      "KeyGesture": "Ctrl+Up",
+      "ActionType": "IncreasePriceByTick",
+      "RequireDoublePress": false,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": false
+    },
+    {
+      "Id": "price_down",
+      "Label": "Decrease Order Price",
+      "KeyGesture": "Ctrl+Down",
+      "ActionType": "DecreasePriceByTick",
+      "RequireDoublePress": false,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": false
+    },
+    {
+      "Id": "emergency",
+      "Label": "Emergency: Flatten+Cancel",
+      "KeyGesture": "Ctrl+Shift+E",
+      "ActionType": "EmergencyFlattenCancel",
+      "RequireDoublePress": true,
+      "RequireConfirmation": false,
+      "CooldownMs": 0,
+      "IsEnabled": true,
+      "IsDangerous": true
+    }
+  ],
+  "GlobalHotkeysEnabled": false,
+  "DebounceMs": 250,
+  "DangerousActionDoublePressMs": 500
+}

@@ -46,10 +46,28 @@ public partial class OrderTicketViewModel : ObservableObject
     {
         if (LimitPrice == null && LastPrice.HasValue && NeedsLimitPrice(value))
             LimitPrice = LastPrice;
+        if (IsStopType(value))
+            AutoInferStopSide();
+    }
+
+    partial void OnStopPriceChanged(decimal? value)
+    {
+        if (IsStopType(OrderType))
+            AutoInferStopSide();
+    }
+
+    private void AutoInferStopSide()
+    {
+        if (!StopPrice.HasValue || !LastPrice.HasValue || LastPrice <= 0) return;
+        // Stop below market → sell stop (stop-loss on long); stop above → buy stop (breakout entry)
+        Side = StopPrice < LastPrice ? OrderSide.Sell : OrderSide.Buy;
     }
 
     private static bool NeedsLimitPrice(OrderType t) =>
         t is OrderType.Limit or OrderType.StopLimit or OrderType.MarketableLimit or OrderType.Bracket;
+
+    private static bool IsStopType(OrderType t) =>
+        t is OrderType.StopMarket or OrderType.StopLimit;
 
     public void PopulateFromDomClick(decimal price, OrderSide side, OrderType orderType)
     {
@@ -78,7 +96,8 @@ public partial class OrderTicketViewModel : ObservableObject
             Source    = OrderSource.OrderTicket
         };
 
-        var (success, msg) = await _orderService.SubmitOrderAsync(req, account, null);
+        var ticketQuote = LastPrice.HasValue ? new FastDOM.MarketData.Models.Quote { Symbol = Symbol, Last = LastPrice.Value } : null;
+        var (success, msg) = await _orderService.SubmitOrderAsync(req, account, ticketQuote);
         StatusMessage = success ? $"Order accepted" : $"REJECTED: {msg}";
     }
 

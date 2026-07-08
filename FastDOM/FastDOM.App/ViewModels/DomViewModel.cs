@@ -35,6 +35,7 @@ public partial class DomViewModel : ObservableObject
     public event Action<decimal, OrderSide, OrderType>? PriceLevelClicked;
     public event Action<OrderState, decimal>? OrderMoveRequested;
     public event Action<decimal>? ContextMenuRequested;
+    public event Action<string>? DragError;
 
     public DomViewModel(ILogger<DomViewModel> logger, DomService domService,
                         OrderService orderService, ConfigManager config)
@@ -163,19 +164,51 @@ public partial class DomViewModel : ObservableObject
         return si.RoundToTick(pin) == price;
     }
 
-    // Returns true if there are working orders on the buy side at this price
-    public bool HasBuyOrderAt(decimal price) =>
-        WorkingOrders.Any(o => o.Side == OrderSide.Buy && o.LimitPrice == price);
+    // Returns true if there are working orders on the buy side at this displayed ladder price
+    public bool HasBuyOrderAt(decimal price) => HasWorkingOrderAtPrice(OrderSide.Buy, price);
 
-    // Returns true if there are working orders on the sell side at this price
-    public bool HasSellOrderAt(decimal price) =>
-        WorkingOrders.Any(o => o.Side == OrderSide.Sell && o.LimitPrice == price);
+    // Returns true if there are working orders on the sell side at this displayed ladder price
+    public bool HasSellOrderAt(decimal price) => HasWorkingOrderAtPrice(OrderSide.Sell, price);
 
     // Called when user drags an order marker to a new price
     public void OnOrderDragged(OrderState order, decimal newPrice)
     {
+        if (order.Side is not OrderSide.Buy and not OrderSide.Sell)
+            return;
+
         OrderMoveRequested?.Invoke(order, newPrice);
     }
 
+    public void ReportDragError(string message) => DragError?.Invoke(message);
+
     public void OnRightClick(decimal price) => ContextMenuRequested?.Invoke(price);
+
+    private bool HasWorkingOrderAtPrice(OrderSide side, decimal price)
+    {
+        var q = _domService.CurrentQuote;
+        var si = _domService.SymbolInfo;
+        foreach (var o in WorkingOrders.Where(o => o.Side == side && o.IsWorking))
+        {
+            if (!HasMatchingDisplayPrice(o, price, q, si)) continue;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasMatchingDisplayPrice(
+        OrderState o,
+        decimal targetPrice,
+        FastDOM.MarketData.Models.Quote? q,
+        FastDOM.Core.Models.SymbolInfo si)
+    {
+        if (o.LimitPrice.HasValue)
+            return si.RoundToTick(o.LimitPrice.Value) == targetPrice;
+
+        if (q == null) return false;
+        var pin = o.Side == OrderSide.Buy
+            ? (q.Ask > 0 ? q.Ask : q.Last)
+            : (q.Bid > 0 ? q.Bid : q.Last);
+        return si.RoundToTick(pin) == targetPrice;
+    }
 }

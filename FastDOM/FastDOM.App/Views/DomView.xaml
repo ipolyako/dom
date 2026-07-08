@@ -98,6 +98,7 @@
                         <Grid x:Name="DomRow" Height="20" Cursor="Hand"
                               MouseLeftButtonDown="DomRow_MouseLeftButtonDown"
                               MouseLeftButtonUp="DomRow_MouseLeftButtonUp"
+                              MouseMove="DomRow_MouseMove"
                               MouseRightButtonDown="DomRow_MouseRightButtonDown">
                             <Grid.Background>
                                 <MultiBinding Converter="{StaticResource RowBrush}">
@@ -116,28 +117,43 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- BUY orders at this price. Body of marker = drag zone. × on right edge = cancel. -->
-                            <Border Grid.Column="0"
-                                    Background="{Binding BuyOrders.Count, Converter={StaticResource OrderBrush}, ConverterParameter=Buy}"
-                                    Margin="1">
-                                <DockPanel Visibility="{Binding HasBuyOrders, Converter={StaticResource BoolToVisibility}}"
-                                           LastChildFill="True">
-                                    <Button DockPanel.Dock="Right" Content="×"
-                                            Width="16" Height="18" Padding="0" Margin="1,0"
-                                            FontSize="11" FontWeight="Bold"
-                                            Background="#DD880000" Foreground="White" BorderThickness="0"
-                                            Cursor="Hand"
-                                            ToolTip="Cancel order(s) at this price"
-                                            Command="{Binding DataContext.CancelAtPriceCommand,
-                                                      RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding Price}"/>
-                                    <TextBlock Text="{Binding BuyOrderSummary}"
+                            <Grid Grid.Column="0" Margin="1">
+                                <Border Background="{Binding BuyOrders.Count, Converter={StaticResource OrderBrush}, ConverterParameter=Buy}">
+                                    <DockPanel Visibility="{Binding HasBuyOrders, Converter={StaticResource BoolToVisibility}}"
+                                               LastChildFill="True">
+                                        <Button DockPanel.Dock="Right" Content="×"
+                                                Width="16" Height="18" Padding="0" Margin="1,0"
+                                                FontSize="11" FontWeight="Bold"
+                                                Background="#DD880000" Foreground="White" BorderThickness="0"
+                                                Cursor="Hand"
+                                                ToolTip="Cancel order(s) at this price"
+                                                Command="{Binding DataContext.CancelAtPriceCommand,
+                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding Price}"/>
+                                        <TextBlock Text="{Binding BuyOrderSummary}"
+                                                   FontFamily="Consolas" FontSize="11" FontWeight="Bold"
+                                                   Foreground="#FF90EE90"
+                                                   TextAlignment="Center" VerticalAlignment="Center"
+                                                   Cursor="SizeNS"
+                                                   ToolTip="Drag up/down to move this order to a new price"/>
+                                    </DockPanel>
+                                </Border>
+                                <!-- Live drag preview overlay: shows the drag ghost at the hovered row -->
+                                <Border BorderBrush="#FFB2FF59" BorderThickness="2" CornerRadius="1"
+                                        Background="#661B5E20" IsHitTestVisible="False">
+                                    <Border.Visibility>
+                                        <MultiBinding Converter="{StaticResource DragPreviewVis}" ConverterParameter="Buy">
+                                            <Binding Path="Price"/>
+                                            <Binding Path="DataContext.DragTargetPrice" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                            <Binding Path="DataContext.DragTargetSide"  RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                        </MultiBinding>
+                                    </Border.Visibility>
+                                    <TextBlock Text="{Binding DataContext.DragPreviewSummary, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                FontFamily="Consolas" FontSize="11" FontWeight="Bold"
-                                               Foreground="#FF90EE90"
-                                               TextAlignment="Center" VerticalAlignment="Center"
-                                               Cursor="SizeNS"
-                                               ToolTip="Drag up/down to move this order to a new price"/>
-                                </DockPanel>
-                            </Border>
+                                               Foreground="White"
+                                               TextAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Grid>
 
                             <!-- Bid size bar -->
                             <Grid Grid.Column="1">
@@ -164,9 +180,8 @@
                             </Grid>
 
                             <!-- SELL orders at this price. × on left edge = cancel. Body = drag zone. -->
-                            <Border Grid.Column="4"
-                                    Background="{Binding SellOrders.Count, Converter={StaticResource OrderBrush}, ConverterParameter=Sell}"
-                                    Margin="1">
+                            <Grid Grid.Column="4" Margin="1">
+                                <Border Background="{Binding SellOrders.Count, Converter={StaticResource OrderBrush}, ConverterParameter=Sell}">
                                 <DockPanel Visibility="{Binding HasSellOrders, Converter={StaticResource BoolToVisibility}}"
                                            LastChildFill="True">
                                     <Button DockPanel.Dock="Left" Content="×"
@@ -185,7 +200,23 @@
                                                Cursor="SizeNS"
                                                ToolTip="Drag up/down to move this order to a new price"/>
                                 </DockPanel>
-                            </Border>
+                                </Border>
+                                <!-- Live drag preview overlay for sell side -->
+                                <Border BorderBrush="#FFFF8A80" BorderThickness="2" CornerRadius="1"
+                                        Background="#66B71C1C" IsHitTestVisible="False">
+                                    <Border.Visibility>
+                                        <MultiBinding Converter="{StaticResource DragPreviewVis}" ConverterParameter="Sell">
+                                            <Binding Path="Price"/>
+                                            <Binding Path="DataContext.DragTargetPrice" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                            <Binding Path="DataContext.DragTargetSide"  RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                        </MultiBinding>
+                                    </Border.Visibility>
+                                    <TextBlock Text="{Binding DataContext.DragPreviewSummary, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                               FontFamily="Consolas" FontSize="11" FontWeight="Bold"
+                                               Foreground="White"
+                                               TextAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Grid>
 
                             <!-- Row grid line -->
                             <Rectangle Grid.Column="0" Grid.ColumnSpan="5"

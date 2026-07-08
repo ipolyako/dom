@@ -120,6 +120,25 @@ public class ConnBrushConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
+// Shows the drag preview marker on exactly one row + one side.
+// Bound with: [0]=row.Price, [1]=DomViewModel.DragTargetPrice, [2]=DomViewModel.DragTargetSide, param="Buy" or "Sell"
+public class DragPreviewVisibilityConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (values.Length < 3) return Visibility.Collapsed;
+        if (values[1] is not decimal target) return Visibility.Collapsed;
+        if (values[0] is not decimal price) return Visibility.Collapsed;
+        if (values[2] is not FastDOM.Core.Enums.OrderSide side) return Visibility.Collapsed;
+        var sideParam = parameter as string;
+        if (sideParam != side.ToString()) return Visibility.Collapsed;
+        return price == target ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 [ValueConversion(typeof(bool), typeof(Brush))]
 public class OrdersBrushConverter : IValueConverter
 {

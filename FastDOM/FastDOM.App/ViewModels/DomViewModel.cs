@@ -26,6 +26,12 @@ public partial class DomViewModel : ObservableObject
     [ObservableProperty] private decimal _clickedPrice;
     [ObservableProperty] private bool _hasDepth;
 
+    // Live drag state — updated by DomView on mouse move so the target row
+    // and side highlight in real time as the user drags.
+    [ObservableProperty] private decimal? _dragTargetPrice;
+    [ObservableProperty] private OrderSide? _dragTargetSide;
+    [ObservableProperty] private string _dragPreviewSummary = "";
+
     public ObservableCollection<DomLadderRow> Rows { get; } = [];
     public ObservableCollection<OrderState> WorkingOrders { get; } = [];
 

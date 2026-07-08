@@ -369,23 +369,46 @@ public class AlpacaBrokerClient : IBrokerClient
     // Wash-trade rejections (code 40310000) return the CONFLICTING order's fields
     // (e.g. buy_limit_price) — surface that as "existing X @ Y blocks Z" so the user
     // doesn't misread it as the submitted order being wrong-side.
-    private static string InterpretAlpacaError(string body)
+    public static string InterpretAlpacaError(string body)
     {
         try
         {
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            if (root.TryGetProperty("code", out var codeEl) && codeEl.GetInt32() == 40310000)
+            if (root.TryGetProperty("code", out var codeEl) && codeEl.ValueKind == JsonValueKind.Number)
             {
-                var side  = root.TryGetProperty("buy_limit_price", out var b) ? ("Buy Limit @ " + b.GetString())
-                          : root.TryGetProperty("sell_limit_price", out var s) ? ("Sell Limit @ " + s.GetString())
-                          : "opposite-side order";
-                return $"Wash-trade prevention: existing {side} blocks this submission — cancel the existing order first.";
+                int code = codeEl.GetInt32();
+                if (code == 40310000)
+                {
+                    var side  = root.TryGetProperty("buy_limit_price", out var b) ? ("Buy Limit @ " + b.GetString())
+                              : root.TryGetProperty("sell_limit_price", out var s) ? ("Sell Limit @ " + s.GetString())
+                              : "opposite-side order";
+                    return $"Wash-trade prevention: existing {side} blocks this submission — cancel the existing order first.";
+                }
+                if (code == 42210000)
+                    return "Order still in 'accepted' state at Alpaca (not yet routed to venue). Wait a moment and try again — extended-hours orders often sit here until the session opens.";
             }
             if (root.TryGetProperty("message", out var m)) return m.GetString() ?? body;
         }
         catch { }
         return body;
+    }
+
+    // Was this Alpaca error a transient "not yet routable" reject that a short
+    // retry should get past? Used by ReplaceOrderAsync to auto-retry.
+    private static bool IsTransientReplaceError(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("code", out var codeEl) &&
+                codeEl.ValueKind == JsonValueKind.Number)
+            {
+                return codeEl.GetInt32() == 42210000;
+            }
+        }
+        catch { }
+        return false;
     }
 
     public async Task<OrderResult> CancelOrderAsync(string accountId, string brokerOrderId, CancellationToken ct = default)
@@ -409,6 +432,54 @@ public class AlpacaBrokerClient : IBrokerClient
 
     public async Task<OrderResult> ReplaceOrderAsync(string accountId, OrderReplace replacement, CancellationToken ct = default)
     {
+        // 1. Try PATCH — the normal case. One quick retry for genuinely
+        //    transient 42210000 errors (order in flight between accepted → new).
+        //    Returns both the OrderResult and the raw body so we can classify
+        //    the failure by Alpaca's code directly (robust to InterpretAlpacaError
+        //    rephrasing the message).
+        var (patchResult, rawBody) = await TryPatchAsync(replacement, ct);
+        if (patchResult.Success) return patchResult;
+
+        if (IsAcceptedStateError(rawBody))
+        {
+            _logger.LogInformation("Alpaca PATCH rejected as transient (42210000); retrying after 500ms");
+            await Task.Delay(500, ct);
+            (patchResult, rawBody) = await TryPatchAsync(replacement, ct);
+            if (patchResult.Success) return patchResult;
+        }
+
+        // 2. If Alpaca is still refusing (order stuck in 'accepted' because it's
+        //    an extended-hours order held during regular hours, or paper-account
+        //    routing delay), fall back to cancel + place-new. Preserves user
+        //    intent for any state that permits cancel.
+        if (IsAcceptedStateError(rawBody))
+        {
+            _logger.LogInformation("Alpaca PATCH blocked (accepted state); falling back to cancel+place");
+            return await CancelAndPlaceReplacementAsync(replacement, ct);
+        }
+
+        return patchResult;
+    }
+
+    // Classify a raw error body by Alpaca's numeric code — stable across
+    // InterpretAlpacaError message rewording.
+    private static bool IsAcceptedStateError(string rawBody)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(rawBody);
+            if (doc.RootElement.TryGetProperty("code", out var codeEl) &&
+                codeEl.ValueKind == JsonValueKind.Number)
+            {
+                return codeEl.GetInt32() == 42210000;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private async Task<(OrderResult result, string rawBody)> TryPatchAsync(OrderReplace replacement, CancellationToken ct)
+    {
         try
         {
             var payload = new
@@ -428,16 +499,84 @@ public class AlpacaBrokerClient : IBrokerClient
             var resp = await _http.SendAsync(req, ct);
             var body = await resp.Content.ReadAsStringAsync(ct);
             if (!resp.IsSuccessStatusCode)
-                return OrderResult.Fail($"Replace failed: {resp.StatusCode} — {body}");
+            {
+                return (OrderResult.Fail($"Replace failed: {resp.StatusCode} — {InterpretAlpacaError(body)}"), body);
+            }
             using var doc = JsonDocument.Parse(body);
             var newId = doc.RootElement.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
-            return OrderResult.Ok(newId, replacement.OriginalClientOrderId);
+            return (OrderResult.Ok(newId, replacement.OriginalClientOrderId), body);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "ReplaceOrderAsync failed");
-            return OrderResult.Fail(ex.Message);
+            _logger.LogError(ex, "TryPatchAsync failed");
+            return (OrderResult.Fail(ex.Message), string.Empty);
         }
+    }
+
+    // Fallback used when PATCH-replace is not permitted by Alpaca. Cancels the
+    // original order, then places a new order carrying over side/type/tif/etc.
+    // with the drag's new price and (optionally) new quantity.
+    private async Task<OrderResult> CancelAndPlaceReplacementAsync(OrderReplace replacement, CancellationToken ct)
+    {
+        // Fetch original order so we know what to re-place.
+        JsonElement orig;
+        {
+            var getReq = new HttpRequestMessage(HttpMethod.Get, $"{_config.TraderApiBase}/orders/{replacement.BrokerOrderId}");
+            var getResp = await _http.SendAsync(getReq, ct);
+            if (!getResp.IsSuccessStatusCode)
+            {
+                var b = await getResp.Content.ReadAsStringAsync(ct);
+                return OrderResult.Fail($"Cancel+place fallback: GET failed {getResp.StatusCode} — {b}");
+            }
+            var getBody = await getResp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(getBody);
+            orig = doc.RootElement.Clone();
+        }
+
+        // Cancel the original.
+        var cancelResp = await _http.DeleteAsync($"{_config.TraderApiBase}/orders/{replacement.BrokerOrderId}", ct);
+        // Alpaca returns 204 No Content on success; 422 if already terminal.
+        // We treat both as "old order is out of the way" and continue.
+        if (!cancelResp.IsSuccessStatusCode && (int)cancelResp.StatusCode != 422)
+        {
+            var b = await cancelResp.Content.ReadAsStringAsync(ct);
+            return OrderResult.Fail($"Cancel+place fallback: cancel failed {cancelResp.StatusCode} — {b}");
+        }
+
+        // Small pause so Alpaca's state settles before the new POST.
+        await Task.Delay(150, ct);
+
+        // Rebuild the payload from the original order + replacement overrides.
+        string? Str(JsonElement el, string name)
+            => el.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? v.GetString() : null;
+
+        var newClientOrderId = (Str(orig, "client_order_id") ?? Guid.NewGuid().ToString("N")) + "-r";
+        var payload = new
+        {
+            symbol          = Str(orig, "symbol"),
+            qty             = replacement.NewQuantity?.ToString() ?? Str(orig, "qty"),
+            side            = Str(orig, "side"),
+            type            = Str(orig, "order_type") ?? Str(orig, "type"),
+            time_in_force   = Str(orig, "time_in_force"),
+            limit_price     = replacement.NewLimitPrice?.ToString("F2") ?? Str(orig, "limit_price"),
+            stop_price      = replacement.NewStopPrice?.ToString("F2")  ?? Str(orig, "stop_price"),
+            client_order_id = newClientOrderId,
+            extended_hours  = orig.TryGetProperty("extended_hours", out var ehEl) && ehEl.ValueKind == JsonValueKind.True,
+        };
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        });
+        var placeResp = await _http.PostAsync($"{_config.TraderApiBase}/orders",
+                                              new StringContent(json, Encoding.UTF8, "application/json"), ct);
+        var placeBody = await placeResp.Content.ReadAsStringAsync(ct);
+        if (!placeResp.IsSuccessStatusCode)
+            return OrderResult.Fail($"Cancel+place fallback: place failed {placeResp.StatusCode} — {InterpretAlpacaError(placeBody)}");
+
+        using var placeDoc = JsonDocument.Parse(placeBody);
+        var newId = placeDoc.RootElement.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
+        _logger.LogInformation("Cancel+place fallback succeeded: new order {NewId}", newId);
+        return OrderResult.Ok(newId, replacement.OriginalClientOrderId);
     }
 
     public async Task<OrderState?> GetOrderStatusAsync(string accountId, string brokerOrderId, CancellationToken ct = default)

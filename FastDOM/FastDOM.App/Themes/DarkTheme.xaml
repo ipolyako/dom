@@ -13,6 +13,7 @@
     <conv:StaleForeConverter x:Key="StaleForeConverter"/>
     <conv:ConnBrushConverter x:Key="ConnBrushConverter"/>
     <conv:OrdersBrushConverter x:Key="OrdersBrushConverter"/>
+    <conv:DragPreviewVisibilityConverter x:Key="DragPreviewVis"/>
     <conv:HotkeyBrushConverter x:Key="HotkeyBrushConverter"/>
     <conv:HotkeyLabelConverter x:Key="HotkeyLabelConverter"/>
     <conv:PnLBrushConverter x:Key="PnLBrushConverter"/>

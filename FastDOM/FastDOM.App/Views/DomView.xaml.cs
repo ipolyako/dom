@@ -93,13 +93,37 @@ public partial class DomView : UserControl
 
         _dragOrders = orders;
         _dragFromPrice = fromPrice;
+        _dragSide = side;
         _dragStartPos = e.GetPosition(DomRows);
         fe.CaptureMouse();
         fe.Cursor = Cursors.SizeNS;
         e.Handled = true;
+
+        // Prime the live preview at the source row.
+        if (ViewModel != null)
+        {
+            ViewModel.DragTargetSide = side;
+            ViewModel.DragTargetPrice = fromPrice;
+            ViewModel.DragPreviewSummary = string.Join("+", orders.Select(o => o.QuantityRemaining));
+        }
     }
 
     private decimal _dragFromPrice;
+    private OrderSide _dragSide;
+
+    private void DomRow_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_dragOrders is null || _dragOrders.Length == 0) return;
+        if (ViewModel == null) return;
+
+        var pos = e.GetPosition(DomRows);
+        var hover = FindRowAt(pos);
+        if (hover == null) return;
+
+        // Only update when the hovered row actually changes.
+        if (ViewModel.DragTargetPrice != hover.Price)
+            ViewModel.DragTargetPrice = hover.Price;
+    }
 
     private void DomRow_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
@@ -107,22 +131,35 @@ public partial class DomView : UserControl
         fe.ReleaseMouseCapture();
         fe.Cursor = Cursors.Hand;
 
-        if (_dragOrders is null || _dragOrders.Length == 0) return;
+        if (_dragOrders is null || _dragOrders.Length == 0)
+        {
+            ClearDragPreview();
+            return;
+        }
         var orders = _dragOrders;
         var fromPrice = _dragFromPrice;
         _dragOrders = null;
 
         var endPos = e.GetPosition(DomRows);
         var deltaY = Math.Abs(endPos.Y - _dragStartPos.Y);
-        if (deltaY < DragThresholdPx) return;
+        if (deltaY < DragThresholdPx) { ClearDragPreview(); return; }
 
         var target = FindRowAt(endPos);
-        if (target == null || target.Price == fromPrice) return;
+        if (target == null || target.Price == fromPrice) { ClearDragPreview(); return; }
 
         foreach (var o in orders)
             ViewModel?.OnOrderDragged(o, target.Price);
 
+        ClearDragPreview();
         e.Handled = true;
+    }
+
+    private void ClearDragPreview()
+    {
+        if (ViewModel == null) return;
+        ViewModel.DragTargetPrice = null;
+        ViewModel.DragTargetSide = null;
+        ViewModel.DragPreviewSummary = "";
     }
 
     private DomLadderRow? FindRowAt(Point pos)

@@ -74,6 +74,8 @@ public class ConfigManager
     private static string? ResolveWorkspacePublishDir(string startDir)
     {
         var dir = new DirectoryInfo(startDir);
+        var fallbackCandidates = new List<string>();
+
         while (dir != null)
         {
             var publish = Path.Combine(dir.FullName, "publish");
@@ -81,13 +83,17 @@ public class ConfigManager
                 (File.Exists(Path.Combine(publish, "appsettings.json")) ||
                  File.Exists(Path.Combine(publish, "appsettings.example.json"))))
             {
-                return publish;
+                if (File.Exists(Path.Combine(dir.FullName, "FastDOM.sln")))
+                    return publish;
+
+                fallbackCandidates.Add(publish);
             }
 
             dir = dir.Parent;
         }
 
-        return null;
+        return fallbackCandidates.FirstOrDefault(p => File.Exists(Path.Combine(p, "appsettings.json")))
+               ?? fallbackCandidates.FirstOrDefault();
     }
 
     public void LoadAll()

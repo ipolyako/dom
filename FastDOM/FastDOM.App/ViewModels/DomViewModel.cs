@@ -80,6 +80,22 @@ public partial class DomViewModel : ObservableObject
         _pendingUpdate = true;
     }
 
+    // When the DOM's symbol changes, re-filter WorkingOrders against the new
+    // symbol so any pre-existing orders on that ticker appear immediately —
+    // without waiting for the next OrderStateChanged event.
+    partial void OnSymbolChanged(string value)
+    {
+        var seen = new HashSet<string>();
+        WorkingOrders.Clear();
+        foreach (var o in _orderService.ActiveOrders.Values)
+        {
+            if (!o.IsWorking || o.Symbol != value) continue;
+            var key = o.BrokerOrderId ?? o.ClientOrderId;
+            if (seen.Add(key)) WorkingOrders.Add(o);
+        }
+        _pendingUpdate = true;
+    }
+
     private void RebuildLadder()
     {
         _domService.PopulateLadder(Rows, VisibleLevels, WorkingOrders, CurrentPosition);

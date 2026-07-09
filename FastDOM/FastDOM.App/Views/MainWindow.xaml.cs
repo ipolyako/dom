@@ -252,8 +252,17 @@ public partial class MainWindow : Window
             NewLimitPrice = newPrice,
             Source = OrderSource.DomClick
         };
-        var (ok, msg) = await _orderService.ReplaceOrderAsync(_vm.SelectedAccountId, replacement);
-        _vm.LastToast = ok ? $"Order moved to {newPrice:F2}" : $"Move failed: {msg}";
+        try
+        {
+            var (ok, msg) = await _orderService.ReplaceOrderAsync(_vm.SelectedAccountId, replacement);
+            _vm.LastToast = ok ? $"Order moved to {newPrice:F2}" : $"Move failed: {msg}";
+        }
+        catch (Exception ex)
+        {
+            // async-void handler — an unhandled exception here surfaces as a
+            // modal "FastDOM Error" dialog. Surface it as a toast instead.
+            _vm.LastToast = $"Move failed: {ex.GetType().Name} — {ex.Message}";
+        }
     }
 
     // Wired from XAML — DOM price level click

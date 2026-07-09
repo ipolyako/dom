@@ -248,12 +248,23 @@ public class OrderService
     public async Task SyncOrdersAsync(string accountId)
     {
         var orders = await _broker.SyncOrdersAsync(accountId);
+        var workingCount = 0;
         foreach (var o in orders)
         {
             if (o.BrokerOrderId != null)
                 _activeOrders[o.BrokerOrderId] = o;
+            if (o.IsWorking) workingCount++;
         }
-        _logger.LogInformation("Synced {Count} orders for {Account}", orders.Count, accountId);
+        _logger.LogInformation("Synced {Count} orders for {Account} ({Working} working)",
+            orders.Count, accountId, workingCount);
+
+        // Fire OrderStateChanged for every synced working order so the DOM
+        // ladder, Orders popup, and Orders-button color all pick them up.
+        // Without this, sync was silent and the UI never learned.
+        foreach (var o in orders)
+        {
+            if (o.IsWorking) OrderStateChanged?.Invoke(o);
+        }
     }
 
     private static bool IsStopOrder(OrderType t) =>

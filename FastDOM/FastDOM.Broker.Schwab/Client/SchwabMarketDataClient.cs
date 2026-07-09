@@ -313,21 +313,41 @@ public class SchwabMarketDataClient : IMarketDataClient
         }
     }
 
+    // Schwab's LEVELONE_EQUITIES stream sends PARTIAL updates — a message may
+    // include only the fields that changed. If we build a fresh Quote per
+    // message the unset fields default to 0 and the ladder centers on 0,
+    // showing negative prices. Merge each partial into a per-symbol running
+    // Quote and emit the merged copy.
+    private readonly Dictionary<string, Quote> _latestL1 = new();
+
     private void ParseL1Data(JsonElement item)
     {
         if (!item.TryGetProperty("content", out var content)) return;
         foreach (var c in content.EnumerateArray())
         {
             var symbol = c.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
-            var quote = new Quote { Symbol = symbol };
-            // Field mapping: 1=bid, 2=ask, 3=last, 9=volume, ...
-            if (c.TryGetProperty("1", out var bid)) quote.Bid = bid.GetDecimal();
-            if (c.TryGetProperty("2", out var ask)) quote.Ask = ask.GetDecimal();
-            if (c.TryGetProperty("3", out var last)) quote.Last = last.GetDecimal();
-            if (c.TryGetProperty("4", out var bidSize)) quote.BidSize = bidSize.GetInt32();
-            if (c.TryGetProperty("5", out var askSize)) quote.AskSize = askSize.GetInt32();
-            if (c.TryGetProperty("8", out var vol)) quote.Volume = vol.GetInt64();
-            _quoteSubject.OnNext(quote);
+            if (string.IsNullOrEmpty(symbol)) continue;
+
+            if (!_latestL1.TryGetValue(symbol, out var running))
+            {
+                running = new Quote { Symbol = symbol };
+                _latestL1[symbol] = running;
+            }
+
+            // Field mapping (Schwab LEVELONE_EQUITIES): 1=bid, 2=ask, 3=last, 4=bidSize, 5=askSize, 8=volume, ...
+            if (c.TryGetProperty("1", out var bid))     running.Bid     = bid.GetDecimal();
+            if (c.TryGetProperty("2", out var ask))     running.Ask     = ask.GetDecimal();
+            if (c.TryGetProperty("3", out var last))    running.Last    = last.GetDecimal();
+            if (c.TryGetProperty("4", out var bidSize)) running.BidSize = (int)bidSize.GetDecimal();
+            if (c.TryGetProperty("5", out var askSize)) running.AskSize = (int)askSize.GetDecimal();
+            if (c.TryGetProperty("8", out var vol))     running.Volume  = (long)vol.GetDecimal();
+            running.TimestampUtc = DateTime.UtcNow;
+
+            // Emit only when we have a meaningful center price for the ladder.
+            // Suppresses the initial volume-only partial that would otherwise
+            // center the DOM on $0.00.
+            if (running.Last > 0 || running.Bid > 0 || running.Ask > 0)
+                _quoteSubject.OnNext(running);
         }
     }
 

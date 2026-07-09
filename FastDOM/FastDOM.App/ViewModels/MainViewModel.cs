@@ -223,6 +223,21 @@ public partial class MainViewModel : ObservableObject
         }
 
         await RefreshBuyingPowerAsync();
+
+        // Pull the account's open orders so anything the user placed before
+        // this session shows up on the DOM ladder and in the Orders popup.
+        if (!string.IsNullOrEmpty(SelectedAccountId))
+        {
+            try
+            {
+                await _orderService.SyncOrdersAsync(SelectedAccountId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Initial order sync failed");
+            }
+        }
+
         await ChangeSymbolAsync();
         LogActivity($"Connected. Mode: {TradingModeLabel}");
     }
@@ -350,6 +365,19 @@ public partial class MainViewModel : ObservableObject
         OrderTicketViewModel.AccountId = value;
         PositionViewModel.AccountId = value;
         OnPropertyChanged(nameof(SelectedAccountDisplay));
+
+        // Pull open orders for the newly-selected account so the DOM shows
+        // them without needing a full reconnect.
+        if (!string.IsNullOrEmpty(value))
+        {
+            _ = SafeSyncOrdersAsync(value);
+        }
+    }
+
+    private async Task SafeSyncOrdersAsync(string accountId)
+    {
+        try { await _orderService.SyncOrdersAsync(accountId); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Order sync failed for {Account}", accountId); }
     }
 
     partial void OnSelectedSymbolChanged(string value)

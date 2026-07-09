@@ -55,6 +55,11 @@ public partial class DomView : UserControl
     private void DomRow_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement fe || fe.DataContext is not DomLadderRow row) return;
+        if (IsDomRowCancelButtonClick(e.OriginalSource))
+        {
+            e.Handled = true;
+            return;
+        }
         if (ViewModel?.IsLocked == true) return;
 
         var modifiers = Keyboard.Modifiers;
@@ -128,6 +133,12 @@ public partial class DomView : UserControl
     private void DomRow_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement fe) return;
+        if (IsDomRowCancelButtonClick(e.OriginalSource))
+        {
+            e.Handled = true;
+            return;
+        }
+
         fe.ReleaseMouseCapture();
         fe.Cursor = Cursors.Hand;
 
@@ -274,5 +285,17 @@ public partial class DomView : UserControl
             if (pt.X < x) return i;
         }
         return 4;
+    }
+
+    private static bool IsDomRowCancelButtonClick(object? source)
+    {
+        var current = source as DependencyObject;
+        while (current != null)
+        {
+            if (current is Button button && button.Content is string content && content.Trim() == "×")
+                return true;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return false;
     }
 }

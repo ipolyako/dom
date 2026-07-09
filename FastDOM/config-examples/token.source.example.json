@@ -1,0 +1,16 @@
+{
+  "Host": "TRADER",
+  "Port": 1527,
+  "Database": "tradedb",
+  "Schema": "ROCH",
+  "User": "ROCH",
+  "Password": "",
+  "AuthRefTable": "AUTHREF",
+  "TokenTable": "TOKEN",
+  "AppKeyColumn": "APPKEY",
+  "AppSecretColumn": "APPSECRET",
+  "AccountHashColumn": "ACCOUNTHASH",
+  "RefreshTokenColumn": "TOKEN",
+  "Purpose": "TRADE",
+  "AccountId": ""
+}

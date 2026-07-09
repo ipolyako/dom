@@ -69,6 +69,7 @@ public class ConfigManager
         {
             ("appsettings.json",   "appsettings.example.json"),
             ("broker.schwab.json", "broker.schwab.example.json"),
+            ("token.source.json",   "token.source.example.json"),
             ("alpaca.json",        "alpaca.example.json"),
             ("risk.profile.json",  "risk.profile.example.json"),
         };

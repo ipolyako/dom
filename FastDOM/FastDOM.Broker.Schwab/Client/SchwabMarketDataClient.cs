@@ -34,6 +34,7 @@ public class SchwabMarketDataClient : IMarketDataClient
     private readonly Subject<bool> _connectionSubject = new();
     private readonly HashSet<string> _subscribedQuotes = [];
     private readonly HashSet<string> _subscribedDepth = [];
+    private readonly Dictionary<string, Quote> _quotesBySymbol = new(StringComparer.OrdinalIgnoreCase);
 
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _wsCts;
@@ -319,14 +320,25 @@ public class SchwabMarketDataClient : IMarketDataClient
         foreach (var c in content.EnumerateArray())
         {
             var symbol = c.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
-            var quote = new Quote { Symbol = symbol };
+            if (string.IsNullOrWhiteSpace(symbol)) continue;
+
+            _quotesBySymbol.TryGetValue(symbol, out var previous);
+            var quote = previous != null ? CopyQuote(previous) : new Quote { Symbol = symbol };
+
             // Field mapping: 1=bid, 2=ask, 3=last, 9=volume, ...
-            if (c.TryGetProperty("1", out var bid)) quote.Bid = bid.GetDecimal();
-            if (c.TryGetProperty("2", out var ask)) quote.Ask = ask.GetDecimal();
-            if (c.TryGetProperty("3", out var last)) quote.Last = last.GetDecimal();
-            if (c.TryGetProperty("4", out var bidSize)) quote.BidSize = bidSize.GetInt32();
-            if (c.TryGetProperty("5", out var askSize)) quote.AskSize = askSize.GetInt32();
-            if (c.TryGetProperty("8", out var vol)) quote.Volume = vol.GetInt64();
+            if (TryGetDecimal(c, "1", out var bid) && bid > 0) quote.Bid = bid;
+            if (TryGetDecimal(c, "2", out var ask) && ask > 0) quote.Ask = ask;
+            if (TryGetDecimal(c, "3", out var last) && last > 0) quote.Last = last;
+            if (TryGetInt(c, "4", out var bidSize)) quote.BidSize = bidSize;
+            if (TryGetInt(c, "5", out var askSize)) quote.AskSize = askSize;
+            if (TryGetLong(c, "8", out var vol)) quote.Volume = vol;
+
+            // Schwab stream messages are partial. Do not publish an unusable
+            // quote that would recenter the DOM on zero.
+            if (quote.Last <= 0 && quote.Bid <= 0 && quote.Ask <= 0)
+                continue;
+
+            _quotesBySymbol[symbol] = quote;
             _quoteSubject.OnNext(quote);
         }
     }
@@ -339,21 +351,95 @@ public class SchwabMarketDataClient : IMarketDataClient
             var symbol = c.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
             var depth = new MarketDepth { Symbol = symbol, HasRealDepth = true };
             if (c.TryGetProperty("1", out var bids))
-                foreach (var bid in bids.EnumerateArray())
-                    depth.Bids.Add(new DomLevel
-                    {
-                        Price = bid.TryGetProperty("0", out var p) ? p.GetDecimal() : 0,
-                        BidSize = bid.TryGetProperty("1", out var s) ? s.GetInt32() : 0
-                    });
+                AddBookLevels(bids, depth.Bids, isBid: true);
             if (c.TryGetProperty("2", out var asks))
-                foreach (var ask in asks.EnumerateArray())
-                    depth.Asks.Add(new DomLevel
-                    {
-                        Price = ask.TryGetProperty("0", out var p) ? p.GetDecimal() : 0,
-                        AskSize = ask.TryGetProperty("1", out var s) ? s.GetInt32() : 0
-                    });
-            _depthSubject.OnNext(depth);
+                AddBookLevels(asks, depth.Asks, isBid: false);
+
+            if (depth.Bids.Count > 0 || depth.Asks.Count > 0)
+                _depthSubject.OnNext(depth);
         }
+    }
+
+    private static void AddBookLevels(JsonElement levels, List<DomLevel> target, bool isBid)
+    {
+        if (levels.ValueKind != JsonValueKind.Array) return;
+
+        foreach (var level in levels.EnumerateArray())
+        {
+            if (level.ValueKind != JsonValueKind.Object) continue;
+            var price = level.TryGetProperty("0", out var p) && TryReadDecimal(p, out var priceValue)
+                ? priceValue
+                : 0m;
+            var size = level.TryGetProperty("1", out var s) && TryReadInt(s, out var sizeValue)
+                ? sizeValue
+                : 0;
+            if (price <= 0 || size <= 0) continue;
+
+            var domLevel = new DomLevel { Price = price };
+            if (isBid) domLevel.BidSize = size;
+            else domLevel.AskSize = size;
+            target.Add(domLevel);
+        }
+    }
+
+    private static Quote CopyQuote(Quote q) => new()
+    {
+        Symbol = q.Symbol,
+        Bid = q.Bid,
+        Ask = q.Ask,
+        Last = q.Last,
+        BidSize = q.BidSize,
+        AskSize = q.AskSize,
+        LastSize = q.LastSize,
+        Volume = q.Volume,
+        Open = q.Open,
+        High = q.High,
+        Low = q.Low,
+        Close = q.Close,
+        NetChange = q.NetChange,
+        NetChangePct = q.NetChangePct,
+    };
+
+    private static bool TryGetDecimal(JsonElement source, string property, out decimal value)
+    {
+        value = 0;
+        return source.TryGetProperty(property, out var element) && TryReadDecimal(element, out value);
+    }
+
+    private static bool TryGetInt(JsonElement source, string property, out int value)
+    {
+        value = 0;
+        return source.TryGetProperty(property, out var element) && TryReadInt(element, out value);
+    }
+
+    private static bool TryGetLong(JsonElement source, string property, out long value)
+    {
+        value = 0;
+        if (!source.TryGetProperty(property, out var element)) return false;
+        if (element.ValueKind == JsonValueKind.Number) return element.TryGetInt64(out value);
+        return element.ValueKind == JsonValueKind.String && long.TryParse(element.GetString(), out value);
+    }
+
+    private static bool TryReadDecimal(JsonElement element, out decimal value)
+    {
+        value = 0;
+        if (element.ValueKind == JsonValueKind.Number) return element.TryGetDecimal(out value);
+        return element.ValueKind == JsonValueKind.String && decimal.TryParse(element.GetString(), out value);
+    }
+
+    private static bool TryReadInt(JsonElement element, out int value)
+    {
+        value = 0;
+        if (element.ValueKind == JsonValueKind.Number)
+        {
+            if (element.TryGetInt32(out value)) return true;
+            if (element.TryGetDecimal(out var decimalValue))
+            {
+                value = Convert.ToInt32(decimalValue);
+                return true;
+            }
+        }
+        return element.ValueKind == JsonValueKind.String && int.TryParse(element.GetString(), out value);
     }
 
     public async Task DisconnectAsync(CancellationToken ct = default)

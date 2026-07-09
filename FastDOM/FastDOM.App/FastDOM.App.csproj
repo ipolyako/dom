@@ -16,6 +16,7 @@
   <ItemGroup>
     <Content Include="..\config-examples\appsettings.json"     CopyToOutputDirectory="PreserveNewest" Link="appsettings.example.json"   ExcludeFromSingleFile="true"/>
     <Content Include="..\config-examples\broker.schwab.example.json"   CopyToOutputDirectory="PreserveNewest" Link="broker.schwab.example.json" ExcludeFromSingleFile="true"/>
+    <Content Include="..\config-examples\token.source.example.json"     CopyToOutputDirectory="PreserveNewest" Link="token.source.example.json" ExcludeFromSingleFile="true"/>
     <Content Include="..\config-examples\alpaca.example.json"          CopyToOutputDirectory="PreserveNewest" Link="alpaca.example.json"        ExcludeFromSingleFile="true"/>
     <Content Include="..\config-examples\risk.profile.json"    CopyToOutputDirectory="PreserveNewest" Link="risk.profile.example.json"  ExcludeFromSingleFile="true"/>
   </ItemGroup>
@@ -23,8 +24,8 @@
   <ItemGroup>
     <Content Include="..\config-examples\hotbuttons.json"      CopyToOutputDirectory="PreserveNewest" Link="hotbuttons.json"            ExcludeFromSingleFile="true"/>
     <Content Include="..\config-examples\hotkeys.json"         CopyToOutputDirectory="PreserveNewest" Link="hotkeys.json"               ExcludeFromSingleFile="true"/>
-    <Content Include="..\\..\\scripts\\test_fastdom_schwab_from_agentquant.py" CopyToOutputDirectory="PreserveNewest" Link="scripts\\test_fastdom_schwab_from_agentquant.py" ExcludeFromSingleFile="true"/>
-  </ItemGroup>
+    <Content Include="..\..\scripts\fastdom_schwab_token_bridge.py" CopyToOutputDirectory="PreserveNewest" Link="scripts\fastdom_schwab_token_bridge.py" ExcludeFromSingleFile="true"/>
+   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FastDOM.Core\FastDOM.Core.csproj" />
     <ProjectReference Include="..\FastDOM.Broker\FastDOM.Broker.csproj" />

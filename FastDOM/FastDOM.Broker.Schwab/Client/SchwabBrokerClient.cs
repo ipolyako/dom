@@ -200,6 +200,15 @@ public class SchwabBrokerClient : IBrokerClient
             if (resp.IsSuccessStatusCode)
                 return OrderResult.Ok(brokerOrderId);
 
+            // Schwab may return NotFound if the order was already filled or
+            // canceled in another terminal state.
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                await resp.Content.ReadAsStringAsync(ct);
+                _logger.LogInformation("Schwab cancel returned NotFound for {OrderId}; treating as already terminal", brokerOrderId);
+                return OrderResult.Ok(brokerOrderId);
+            }
+
             var body = await resp.Content.ReadAsStringAsync(ct);
             return OrderResult.Fail(body, (int)resp.StatusCode);
         }
@@ -218,6 +227,14 @@ public class SchwabBrokerClient : IBrokerClient
         // 1. Try PUT — the normal case.
         var (putResult, putStatus) = await TryPutReplaceAsync(accountId, replacement, token, ct);
         if (putResult.Success) return putResult;
+        if (putStatus == 401 || putStatus == 403)
+            return putResult;
+
+        // Schwab expects a full replacement order on some accounts/order states.
+        // If the minimal price-only PUT is rejected, retry with the original
+        // order payload plus the requested price/quantity deltas.
+        var (fullPutResult, fullPutStatus) = await TryFullPutReplaceAsync(accountId, replacement, token, ct);
+        if (fullPutResult.Success) return fullPutResult;
 
         // 2. Fall back to cancel + place-new for any state error where a
         //    replace is refused but a cancel would still succeed (mirrors
@@ -225,10 +242,12 @@ public class SchwabBrokerClient : IBrokerClient
         //    "this order isn't in a replaceable state right now" — cancel is
         //    always safe to try. Skip fallback for 401/403 (auth) since it
         //    won't help there.
-        if (putStatus == 401 || putStatus == 403)
-            return putResult;
+        if (fullPutStatus == 401 || fullPutStatus == 403)
+            return fullPutResult;
 
-        _logger.LogInformation("Schwab PUT replace failed (HTTP {Status}); falling back to cancel+place", putStatus);
+        _logger.LogInformation(
+            "Schwab PUT replace failed (minimal HTTP {MinimalStatus}, full HTTP {FullStatus}); falling back to cancel+place",
+            putStatus, fullPutStatus);
         return await CancelAndPlaceReplacementAsync(accountId, replacement, token, ct);
     }
 
@@ -271,6 +290,41 @@ public class SchwabBrokerClient : IBrokerClient
         }
     }
 
+    private async Task<(OrderResult result, int status)> TryFullPutReplaceAsync(
+        string accountId, OrderReplace replacement, string token, CancellationToken ct)
+    {
+        var hash = GetHash(accountId);
+        var (orig, error, status) = await GetOriginalOrderAsync(hash, replacement.BrokerOrderId, token, ct);
+        if (orig == null)
+            return (OrderResult.Fail($"Full PUT replace: GET failed {status} — {error}", status), status);
+
+        var placeBody = BuildReplacementPayload(orig.Value, replacement);
+        var json = JsonSerializer.Serialize(placeBody);
+
+        using var req = new HttpRequestMessage(HttpMethod.Put,
+            $"{_config.TraderApiBase}/accounts/{hash}/orders/{replacement.BrokerOrderId}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        try
+        {
+            var resp = await _http.SendAsync(req, ct);
+            if (resp.IsSuccessStatusCode)
+            {
+                var newId = ExtractOrderIdFromLocation(resp.Headers.Location) ?? replacement.BrokerOrderId;
+                return (OrderResult.Ok(newId), (int)resp.StatusCode);
+            }
+
+            var responseBody = await resp.Content.ReadAsStringAsync(ct);
+            return (OrderResult.Fail(responseBody, (int)resp.StatusCode), (int)resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Schwab TryFullPutReplaceAsync exception");
+            return (OrderResult.Fail(ex.Message), 0);
+        }
+    }
+
     // Fallback for any Schwab state that refuses a PUT-replace. Fetches the
     // original order, cancels it, then places a fresh order carrying over the
     // side / order type / session / duration / instrument and overriding
@@ -281,20 +335,61 @@ public class SchwabBrokerClient : IBrokerClient
         var hash = GetHash(accountId);
 
         // 1. GET original.
-        using var getReq = new HttpRequestMessage(HttpMethod.Get,
-            $"{_config.TraderApiBase}/accounts/{hash}/orders/{replacement.BrokerOrderId}");
-        getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        var getResp = await _http.SendAsync(getReq, ct);
-        if (!getResp.IsSuccessStatusCode)
-        {
-            var b = await getResp.Content.ReadAsStringAsync(ct);
-            return OrderResult.Fail($"Cancel+place fallback: GET failed {(int)getResp.StatusCode} — {b}");
-        }
-        var getBody = await getResp.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(getBody);
-        var orig = doc.RootElement;
+        var (orig, error, status) = await GetOriginalOrderAsync(hash, replacement.BrokerOrderId, token, ct);
+        if (orig == null)
+            return OrderResult.Fail($"Cancel+place fallback: GET failed {status} — {error}", status);
 
         // 2. Build new order payload from original + replacement deltas.
+        var placeBody = BuildReplacementPayload(orig.Value, replacement);
+
+        // 3. DELETE old. Treat 409/422 (already terminal) as "out of the way".
+        using var delReq = new HttpRequestMessage(HttpMethod.Delete,
+            $"{_config.TraderApiBase}/accounts/{hash}/orders/{replacement.BrokerOrderId}");
+        delReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var delResp = await _http.SendAsync(delReq, ct);
+        var delCode = (int)delResp.StatusCode;
+        if (!delResp.IsSuccessStatusCode && delCode != 409 && delCode != 422)
+        {
+            var b = await delResp.Content.ReadAsStringAsync(ct);
+            return OrderResult.Fail($"Cancel+place fallback: DELETE failed {delCode} — {b}");
+        }
+        await Task.Delay(150, ct);
+
+        // 4. POST new.
+        var placeJson = JsonSerializer.Serialize(placeBody);
+        using var postReq = new HttpRequestMessage(HttpMethod.Post,
+            $"{_config.TraderApiBase}/accounts/{hash}/orders");
+        postReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        postReq.Content = new StringContent(placeJson, Encoding.UTF8, "application/json");
+        var postResp = await _http.SendAsync(postReq, ct);
+        var postCode = (int)postResp.StatusCode;
+        if (postResp.StatusCode == System.Net.HttpStatusCode.Created)
+        {
+            var newId = ExtractOrderIdFromLocation(postResp.Headers.Location) ?? "";
+            _logger.LogInformation("Schwab cancel+place fallback succeeded: new order {NewId}", newId);
+            return OrderResult.Ok(newId);
+        }
+        var postBody = await postResp.Content.ReadAsStringAsync(ct);
+        return OrderResult.Fail($"Cancel+place fallback: POST failed {postCode} — {postBody}", postCode);
+    }
+
+    private async Task<(JsonElement? order, string error, int status)> GetOriginalOrderAsync(
+        string accountHash, string brokerOrderId, string token, CancellationToken ct)
+    {
+        using var getReq = new HttpRequestMessage(HttpMethod.Get,
+            $"{_config.TraderApiBase}/accounts/{accountHash}/orders/{brokerOrderId}");
+        getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var getResp = await _http.SendAsync(getReq, ct);
+        var getBody = await getResp.Content.ReadAsStringAsync(ct);
+        if (!getResp.IsSuccessStatusCode)
+            return (null, getBody, (int)getResp.StatusCode);
+
+        using var doc = JsonDocument.Parse(getBody);
+        return (doc.RootElement.Clone(), "", (int)getResp.StatusCode);
+    }
+
+    private static Dictionary<string, object> BuildReplacementPayload(JsonElement orig, OrderReplace replacement)
+    {
         var placeBody = new Dictionary<string, object>();
         if (orig.TryGetProperty("orderType", out var otEl) && otEl.ValueKind == JsonValueKind.String)
             placeBody["orderType"] = otEl.GetString()!;
@@ -326,8 +421,7 @@ public class SchwabBrokerClient : IBrokerClient
                 if (leg.TryGetProperty("instruction", out var instEl) && instEl.ValueKind == JsonValueKind.String)
                     newLeg["instruction"] = instEl.GetString()!;
                 var qty = replacement.NewQuantity
-                          ?? (leg.TryGetProperty("quantity", out var qEl) && qEl.ValueKind == JsonValueKind.Number
-                              ? qEl.GetInt32() : 0);
+                          ?? (leg.TryGetProperty("quantity", out var qEl) ? TryGetQuantityValue(qEl) : 0);
                 newLeg["quantity"] = qty;
                 if (leg.TryGetProperty("instrument", out var instrEl) && instrEl.ValueKind == JsonValueKind.Object)
                 {
@@ -343,35 +437,28 @@ public class SchwabBrokerClient : IBrokerClient
             placeBody["orderLegCollection"] = newLegs;
         }
 
-        // 3. DELETE old. Treat 409/422 (already terminal) as "out of the way".
-        using var delReq = new HttpRequestMessage(HttpMethod.Delete,
-            $"{_config.TraderApiBase}/accounts/{hash}/orders/{replacement.BrokerOrderId}");
-        delReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        var delResp = await _http.SendAsync(delReq, ct);
-        var delCode = (int)delResp.StatusCode;
-        if (!delResp.IsSuccessStatusCode && delCode != 409 && delCode != 422)
-        {
-            var b = await delResp.Content.ReadAsStringAsync(ct);
-            return OrderResult.Fail($"Cancel+place fallback: DELETE failed {delCode} — {b}");
-        }
-        await Task.Delay(150, ct);
+        return placeBody;
+    }
 
-        // 4. POST new.
-        var placeJson = JsonSerializer.Serialize(placeBody);
-        using var postReq = new HttpRequestMessage(HttpMethod.Post,
-            $"{_config.TraderApiBase}/accounts/{hash}/orders");
-        postReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        postReq.Content = new StringContent(placeJson, Encoding.UTF8, "application/json");
-        var postResp = await _http.SendAsync(postReq, ct);
-        var postCode = (int)postResp.StatusCode;
-        if (postResp.StatusCode == System.Net.HttpStatusCode.Created)
+    private static int TryGetQuantityValue(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Number)
         {
-            var newId = ExtractOrderIdFromLocation(postResp.Headers.Location) ?? "";
-            _logger.LogInformation("Schwab cancel+place fallback succeeded: new order {NewId}", newId);
-            return OrderResult.Ok(newId);
+            if (value.TryGetInt32(out var intValue))
+                return intValue;
+
+            if (value.TryGetDecimal(out var decimalValue))
+                return Convert.ToInt32(decimalValue);
         }
-        var postBody = await postResp.Content.ReadAsStringAsync(ct);
-        return OrderResult.Fail($"Cancel+place fallback: POST failed {postCode} — {postBody}", postCode);
+
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            var text = value.GetString();
+            if (decimal.TryParse(text, out var parsedDecimal))
+                return Convert.ToInt32(parsedDecimal);
+        }
+
+        return 0;
     }
 
     private static string? ExtractOrderIdFromLocation(Uri? location)

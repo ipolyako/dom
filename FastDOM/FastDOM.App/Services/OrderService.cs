@@ -155,8 +155,18 @@ public class OrderService
 
     public async Task<(bool success, string message)> CancelOrderAsync(string accountId, string brokerOrderId)
     {
-        if (!_activeOrders.TryGetValue(brokerOrderId, out var state))
-            return (false, "Order not found");
+        var state = ResolveActiveOrderState(brokerOrderId);
+        if (state == null)
+        {
+            _logger.LogWarning("Cancel requested for unknown order id {OrderId}; issuing broker cancel as fallback", brokerOrderId);
+            var fallback = await _broker.CancelOrderAsync(accountId, brokerOrderId);
+            if (fallback.Success)
+            {
+                ToastRequested?.Invoke($"Order {brokerOrderId} cancel sent");
+                return (true, "OK");
+            }
+            return (false, $"Order not found locally and broker cancel failed: {fallback.ErrorMessage}");
+        }
 
         state.Transition(OrderStatus.CancelPending);
         OrderStateChanged?.Invoke(state);
@@ -178,6 +188,17 @@ public class OrderService
 
         OrderStateChanged?.Invoke(state);
         return (result.Success, result.ErrorMessage ?? "OK");
+    }
+
+    private OrderState? ResolveActiveOrderState(string brokerOrderId)
+    {
+        if (_activeOrders.TryGetValue(brokerOrderId, out var state))
+            return state;
+
+        var fallback = _activeOrders.Values.FirstOrDefault(o =>
+            string.Equals(o.ClientOrderId, brokerOrderId, StringComparison.Ordinal) ||
+            string.Equals(o.BrokerOrderId, brokerOrderId, StringComparison.Ordinal));
+        return fallback;
     }
 
     public async Task<(bool success, string message)> ReplaceOrderAsync(
@@ -214,7 +235,28 @@ public class OrderService
         }
         else
         {
-            state.Transition(OrderStatus.Working, "Replace failed: " + result.ErrorMessage);
+            var live = !string.IsNullOrWhiteSpace(state.BrokerOrderId)
+                ? await _broker.GetOrderStatusAsync(accountId, state.BrokerOrderId)
+                : null;
+
+            if (live != null)
+            {
+                state.Transition(live.Status, "Replace failed: " + result.ErrorMessage);
+                state.QuantityFilled = live.QuantityFilled;
+                state.AverageFillPrice = live.AverageFillPrice;
+            }
+            else if (state.IsTerminal)
+            {
+                state.Transition(state.Status, "Replace failed: " + result.ErrorMessage);
+            }
+            else if (IsTerminalBrokerFailure(result.ErrorMessage))
+            {
+                state.Transition(OrderStatus.BrokerRejected, "Replace failed: " + result.ErrorMessage);
+            }
+            else
+            {
+                state.Transition(OrderStatus.Working, "Replace failed: " + result.ErrorMessage);
+            }
         }
 
         OrderStateChanged?.Invoke(state);
@@ -258,6 +300,14 @@ public class OrderService
 
     private static bool IsStopOrder(OrderType t) =>
         t is OrderType.StopMarket or OrderType.StopLimit;
+
+    private static bool IsTerminalBrokerFailure(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return false;
+        return message.Contains("state REJECTED", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("cannot be canceled", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("already terminal", StringComparison.OrdinalIgnoreCase);
+    }
 
     private void OnBrokerOrderUpdate(OrderState update)
     {

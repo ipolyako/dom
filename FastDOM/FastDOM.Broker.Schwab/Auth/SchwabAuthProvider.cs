@@ -53,7 +53,8 @@ public class SchwabAuthProvider : IAuthProvider
 
     public async Task<bool> LoginAsync(CancellationToken ct = default)
     {
-        // Java-agentquant bridge is now the primary path (DB2 .NET provider removed).
+        // Java/AgentQuant bridge is the primary path. The DB2 .NET provider is kept
+        // only as a fallback for older deployments.
         if (await TryAgentQuantBridgeAsync(ct))
             return true;
 
@@ -175,6 +176,23 @@ public class SchwabAuthProvider : IAuthProvider
 
     private string ResolveAgentQuantScriptPath()
     {
+        var localBridge = Path.Combine(AppContext.BaseDirectory, "scripts", "fastdom_schwab_token_bridge.py");
+        if (File.Exists(localBridge)) return localBridge;
+
+        var devBridge = Path.Combine(AppContext.BaseDirectory, "..", "scripts", "fastdom_schwab_token_bridge.py");
+        if (File.Exists(devBridge))
+            return Path.GetFullPath(devBridge);
+
+        var configuredRoot = Environment.GetEnvironmentVariable("FASTDOM_AGENTQUANT_ROOT");
+        if (!string.IsNullOrWhiteSpace(configuredRoot))
+        {
+            var configuredPath = Path.Combine(configuredRoot, "scripts", "test_fastdom_schwab_from_agentquant.py");
+            if (File.Exists(configuredPath)) return Path.GetFullPath(configuredPath);
+
+            var legacyPath = Path.Combine(configuredRoot, "scripts", "test_schwab_auth.py");
+            if (File.Exists(legacyPath)) return Path.GetFullPath(legacyPath);
+        }
+
         var local = Path.Combine(AppContext.BaseDirectory, "scripts", "test_fastdom_schwab_from_agentquant.py");
         if (File.Exists(local)) return local;
 
@@ -216,6 +234,12 @@ public class SchwabAuthProvider : IAuthProvider
             args.Add(QuoteArg(_tokenSource.AccountId));
         }
 
+        if (!string.IsNullOrWhiteSpace(_tokenSource.Schema))
+        {
+            args.Add("--derby-schema");
+            args.Add(QuoteArg(_tokenSource.Schema));
+        }
+
         var agentquantRoot = Environment.GetEnvironmentVariable("FASTDOM_AGENTQUANT_ROOT");
         if (!string.IsNullOrWhiteSpace(agentquantRoot))
         {
@@ -234,6 +258,13 @@ public class SchwabAuthProvider : IAuthProvider
             env["DERBY_USER"] = _tokenSource.User;
         if (!string.IsNullOrWhiteSpace(_tokenSource.Password))
             env["DERBY_PASSWORD"] = _tokenSource.Password;
+        if (!string.IsNullOrWhiteSpace(_tokenSource.Purpose))
+            env["SCHWAB_AUTH_PURPOSE"] = _tokenSource.Purpose;
+        if (!string.IsNullOrWhiteSpace(_tokenSource.AccountId))
+            env["SCHWAB_ACCOUNT_ID"] = _tokenSource.AccountId;
+        if (!string.IsNullOrWhiteSpace(_tokenSource.Schema))
+            env["SCHWAB_AUTH_SCHEMA"] = _tokenSource.Schema;
+        env["SCHWAB_AUTH_SOURCE"] = "derby";
 
         return env;
     }

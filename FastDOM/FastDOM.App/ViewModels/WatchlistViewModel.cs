@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FastDOM.MarketData.Interfaces;
@@ -51,6 +52,8 @@ public partial class WatchlistViewModel : ObservableObject
     private readonly ILogger<WatchlistViewModel> _logger;
     private readonly string _savePath;
     private IDisposable? _quoteSub;
+    private readonly DispatcherTimer _refreshTimer;
+    private bool _refreshInFlight;
 
     public ObservableCollection<WatchlistItem> Items { get; } = [];
     public event Action<string>? SymbolSelected;
@@ -67,6 +70,12 @@ public partial class WatchlistViewModel : ObservableObject
 
         Load();
         _quoteSub = marketData.QuoteStream.Subscribe(OnQuote);
+
+        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+        _refreshTimer.Tick += async (_, _) => await RefreshSnapshotsAsync();
+        _refreshTimer.Start();
+
+        _ = ResubscribeAsync();
     }
 
     [RelayCommand]
@@ -122,9 +131,39 @@ public partial class WatchlistViewModel : ObservableObject
     {
         foreach (var item in Items.ToList())
         {
-            try { await _marketData.SubscribeQuotesAsync(item.Symbol); }
+            try
+            {
+                await _marketData.SubscribeQuotesAsync(item.Symbol);
+                await RefreshSnapshotAsync(item);
+            }
             catch (Exception ex) { _logger.LogDebug(ex, "Resubscribe failed: {Sym}", item.Symbol); }
         }
+    }
+
+    private async Task RefreshSnapshotsAsync()
+    {
+        if (_refreshInFlight) return;
+        _refreshInFlight = true;
+        try
+        {
+            foreach (var item in Items.ToList())
+                await RefreshSnapshotAsync(item);
+        }
+        finally
+        {
+            _refreshInFlight = false;
+        }
+    }
+
+    private async Task RefreshSnapshotAsync(WatchlistItem item)
+    {
+        var snap = await _marketData.GetSnapshotAsync(item.Symbol);
+        if (snap == null) return;
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            item.Last = snap.Last;
+            item.Change = snap.NetChange;
+        });
     }
 
     private void OnQuote(FastDOM.MarketData.Models.Quote q)

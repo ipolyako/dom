@@ -141,6 +141,7 @@ public class OrderService
             state.Transition(OrderStatus.Accepted);
             _activeOrders[result.BrokerOrderId!] = state;
             ToastRequested?.Invoke($"Order {request.Side} {request.Quantity} {request.Symbol} ACCEPTED ({brokerAckMs}ms)");
+            _ = RefreshAcceptedOrderStatusAsync(state);
         }
         else
         {
@@ -174,20 +175,83 @@ public class OrderService
         var result = await _broker.CancelOrderAsync(accountId, brokerOrderId);
         if (result.Success)
         {
-            // The broker stream may have already transitioned to Cancelled via OnBrokerOrderUpdate
-            if (!state.IsTerminal)
-                state.Transition(OrderStatus.Cancelled);
-            _logger.LogInformation("Order {Id} cancelled", brokerOrderId);
+            var confirmed = await WaitForCancelConfirmationAsync(accountId, brokerOrderId, state);
+            if (confirmed)
+            {
+                _logger.LogInformation("Order {Id} cancelled", brokerOrderId);
+            }
+            else
+            {
+                state.Transition(OrderStatus.Working, "Cancel not confirmed by broker");
+                _logger.LogWarning("Cancel request for {Id} was accepted but order is still working", brokerOrderId);
+                result = OrderResult.Fail("Cancel request accepted but order is still working at broker");
+            }
         }
         else
         {
             // Do not mark as cancelled if it failed — keep it as working
-            state.Transition(OrderStatus.Working, "Cancel failed: " + result.ErrorMessage);
+            state.Transition(
+                IsTerminalBrokerFailure(result.ErrorMessage) ? OrderStatus.BrokerRejected : OrderStatus.Working,
+                "Cancel failed: " + result.ErrorMessage);
             _logger.LogWarning("Cancel failed for {Id}: {Error}", brokerOrderId, result.ErrorMessage);
         }
 
         OrderStateChanged?.Invoke(state);
         return (result.Success, result.ErrorMessage ?? "OK");
+    }
+
+    private async Task RefreshAcceptedOrderStatusAsync(OrderState state)
+    {
+        if (string.IsNullOrWhiteSpace(state.BrokerOrderId)) return;
+
+        try
+        {
+            foreach (var delayMs in new[] { 500, 1500, 3000 })
+            {
+                await Task.Delay(delayMs);
+                var live = await _broker.GetOrderStatusAsync(state.AccountId, state.BrokerOrderId);
+                if (live == null) continue;
+
+                state.QuantityFilled = live.QuantityFilled;
+                state.AverageFillPrice = live.AverageFillPrice;
+                state.Transition(live.Status, live.BrokerMessage);
+                OrderStateChanged?.Invoke(state);
+
+                if (live.IsTerminal || live.Status == OrderStatus.Working || live.Status == OrderStatus.PartiallyFilled)
+                    return;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Post-accept status refresh failed for {OrderId}", state.BrokerOrderId);
+        }
+    }
+
+    private async Task<bool> WaitForCancelConfirmationAsync(string accountId, string brokerOrderId, OrderState state)
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            await Task.Delay(attempt == 0 ? 150 : 300);
+            var live = await _broker.GetOrderStatusAsync(accountId, brokerOrderId);
+            if (live == null)
+            {
+                state.Transition(OrderStatus.Cancelled);
+                OrderStateChanged?.Invoke(state);
+                return true;
+            }
+
+            state.QuantityFilled = live.QuantityFilled;
+            state.AverageFillPrice = live.AverageFillPrice;
+            state.Transition(live.Status, live.BrokerMessage);
+            OrderStateChanged?.Invoke(state);
+
+            if (live.Status == OrderStatus.CancelPending)
+                continue;
+
+            return live.IsTerminal;
+        }
+
+        return false;
     }
 
     private OrderState? ResolveActiveOrderState(string brokerOrderId)
@@ -293,20 +357,30 @@ public class OrderService
         var workingCount = 0;
         foreach (var o in orders)
         {
-            if (o.BrokerOrderId != null)
+            if (o.BrokerOrderId == null) continue;
+
+            if (_activeOrders.TryGetValue(o.BrokerOrderId, out var existing))
+            {
+                var oldStatus = existing.Status;
+                existing.Transition(o.Status, o.BrokerMessage);
+                existing.QuantityFilled = o.QuantityFilled;
+                existing.AverageFillPrice = o.AverageFillPrice;
+                existing.LimitPrice = o.LimitPrice;
+                existing.StopPrice = o.StopPrice;
+
+                if (oldStatus != existing.Status || existing.IsWorking || oldStatus == OrderStatus.Working)
+                    OrderStateChanged?.Invoke(existing);
+            }
+            else if (o.IsWorking)
+            {
                 _activeOrders[o.BrokerOrderId] = o;
+                OrderStateChanged?.Invoke(o);
+            }
+
             if (o.IsWorking) workingCount++;
         }
         _logger.LogInformation("Synced {Count} orders for {Account} ({Working} working)",
             orders.Count, accountId, workingCount);
-
-        // Fire OrderStateChanged for every synced working order so the DOM
-        // ladder, Orders popup, and Orders-button color all pick them up.
-        // Without this, sync was silent and the UI never learned.
-        foreach (var o in orders)
-        {
-            if (o.IsWorking) OrderStateChanged?.Invoke(o);
-        }
     }
 
     private static bool IsStopOrder(OrderType t) =>

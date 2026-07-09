@@ -18,7 +18,8 @@ namespace FastDOM.Broker.Schwab.Client;
 /// Confirmed endpoints:
 ///   REST L1:  GET /marketdata/v1/quotes?symbols=SPY,NVDA  (single snapshot)
 ///   Streaming: WebSocket URL from GET /trader/v1/userPreference → streamerInfo[0].streamerSocketUrl
-///   Streaming services: LEVELONE_EQUITIES (L1), NYSE_BOOK / NASDAQ_BOOK (L2 depth)
+///   Streaming services: LEVELONE_EQUITIES / LEVELONE_OPTIONS (L1),
+///   NYSE_BOOK / NASDAQ_BOOK / OPTIONS_BOOK (L2 depth)
 ///
 /// Depth-of-book is only available through the streaming WebSocket, not REST.
 /// </summary>
@@ -27,6 +28,7 @@ public class SchwabMarketDataClient : IMarketDataClient
     private readonly ILogger<SchwabMarketDataClient> _logger;
     private readonly SchwabConfig _config;
     private readonly SchwabAuthProvider _auth;
+    private readonly SchwabAuthProvider _streamerAuth;
     private readonly HttpClient _http;
     private readonly Subject<Quote> _quoteSubject = new();
     private readonly Subject<MarketDepth> _depthSubject = new();
@@ -49,17 +51,19 @@ public class SchwabMarketDataClient : IMarketDataClient
     public IObservable<Trade> TradeStream => _tradeSubject.AsObservable();
     public IObservable<bool> ConnectionStateStream => _connectionSubject.AsObservable();
 
-    // L1 field indices for LEVELONE_EQUITIES
+    // L1 field indices for LEVELONE_EQUITIES / LEVELONE_OPTIONS
     private static readonly string L1Fields = "0,1,2,3,4,5,6,7,8,9,10,11,12";
 
     public SchwabMarketDataClient(
         ILogger<SchwabMarketDataClient> logger,
         SchwabConfig config,
-        SchwabAuthProvider auth)
+        SchwabAuthProvider auth,
+        SchwabAuthProvider? streamerAuth = null)
     {
         _logger = logger;
         _config = config;
         _auth = auth;
+        _streamerAuth = streamerAuth ?? auth;
         _http = new HttpClient();
     }
 
@@ -97,7 +101,7 @@ public class SchwabMarketDataClient : IMarketDataClient
 
     private async Task<string?> GetStreamerUrlAsync(CancellationToken ct)
     {
-        var token = await _auth.GetAccessTokenAsync(ct);
+        var token = await _streamerAuth.GetAccessTokenAsync(ct);
         if (string.IsNullOrEmpty(token)) return null;
 
         using var req = new HttpRequestMessage(HttpMethod.Get, $"{_config.TraderApiBase}/userPreference");
@@ -108,10 +112,16 @@ public class SchwabMarketDataClient : IMarketDataClient
             var resp = await _http.SendAsync(req, ct);
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
-            return doc.RootElement
-                .GetProperty("streamerInfo")[0]
-                .GetProperty("streamerSocketUrl")
-                .GetString();
+            if (doc.RootElement.TryGetProperty("streamerInfo", out var streamerInfo) &&
+                streamerInfo.ValueKind == JsonValueKind.Array &&
+                streamerInfo.GetArrayLength() > 0 &&
+                streamerInfo[0].TryGetProperty("streamerSocketUrl", out var url))
+            {
+                return url.GetString();
+            }
+
+            _logger.LogError("Schwab userPreference did not include streamerInfo. Status={Status} Body={Body}", resp.StatusCode, body);
+            return null;
         }
         catch (Exception ex)
         {
@@ -149,12 +159,13 @@ public class SchwabMarketDataClient : IMarketDataClient
 
     public async Task SubscribeQuotesAsync(string symbol, CancellationToken ct = default)
     {
-        symbol = symbol.ToUpperInvariant();
+        symbol = NormalizeDisplaySymbol(symbol);
         _subscribedQuotes.Add(symbol);
 
         if (_ws?.State == WebSocketState.Open)
         {
-            await SendSubscribeAsync("LEVELONE_EQUITIES", symbol, L1Fields, ct);
+            var service = IsOptionSymbol(symbol) ? "LEVELONE_OPTIONS" : "LEVELONE_EQUITIES";
+            await SendSubscribeAsync(service, ToStreamerKey(symbol), L1Fields, ct);
         }
         else
         {
@@ -208,14 +219,22 @@ public class SchwabMarketDataClient : IMarketDataClient
 
     public async Task SubscribeDepthAsync(string symbol, CancellationToken ct = default)
     {
-        symbol = symbol.ToUpperInvariant();
+        symbol = NormalizeDisplaySymbol(symbol);
         _subscribedDepth.Add(symbol);
 
         if (_ws?.State == WebSocketState.Open)
         {
-            // Use NYSE_BOOK or NASDAQ_BOOK based on exchange
-            await SendSubscribeAsync("NYSE_BOOK", symbol, "0,1,2,3", ct);
-            await SendSubscribeAsync("NASDAQ_BOOK", symbol, "0,1,2,3", ct);
+            var key = ToStreamerKey(symbol);
+            if (IsOptionSymbol(symbol))
+            {
+                await SendSubscribeAsync("OPTIONS_BOOK", key, "0,1,2,3", ct);
+            }
+            else
+            {
+                // Use both equity books; Schwab will deliver the matching venue.
+                await SendSubscribeAsync("NYSE_BOOK", key, "0,1,2,3", ct);
+                await SendSubscribeAsync("NASDAQ_BOOK", key, "0,1,2,3", ct);
+            }
         }
     }
 
@@ -301,9 +320,9 @@ public class SchwabMarketDataClient : IMarketDataClient
                 foreach (var item in data.EnumerateArray())
                 {
                     var service = item.TryGetProperty("service", out var s) ? s.GetString() : "";
-                    if (service == "LEVELONE_EQUITIES")
+                    if (service is "LEVELONE_EQUITIES" or "LEVELONE_OPTIONS")
                         ParseL1Data(item);
-                    else if (service is "NYSE_BOOK" or "NASDAQ_BOOK")
+                    else if (service is "NYSE_BOOK" or "NASDAQ_BOOK" or "OPTIONS_BOOK")
                         ParseDepthData(item);
                 }
             }
@@ -319,7 +338,7 @@ public class SchwabMarketDataClient : IMarketDataClient
         if (!item.TryGetProperty("content", out var content)) return;
         foreach (var c in content.EnumerateArray())
         {
-            var symbol = c.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
+            var symbol = c.TryGetProperty("key", out var k) ? NormalizeDisplaySymbol(k.GetString() ?? "") : "";
             if (string.IsNullOrWhiteSpace(symbol)) continue;
 
             _quotesBySymbol.TryGetValue(symbol, out var previous);
@@ -348,7 +367,7 @@ public class SchwabMarketDataClient : IMarketDataClient
         if (!item.TryGetProperty("content", out var content)) return;
         foreach (var c in content.EnumerateArray())
         {
-            var symbol = c.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
+            var symbol = c.TryGetProperty("key", out var k) ? NormalizeDisplaySymbol(k.GetString() ?? "") : "";
             var depth = new MarketDepth { Symbol = symbol, HasRealDepth = true };
             if (c.TryGetProperty("1", out var bids))
                 AddBookLevels(bids, depth.Bids, isBid: true);
@@ -399,6 +418,50 @@ public class SchwabMarketDataClient : IMarketDataClient
         NetChange = q.NetChange,
         NetChangePct = q.NetChangePct,
     };
+
+    private static bool IsOptionSymbol(string symbol)
+    {
+        symbol = symbol.Trim().ToUpperInvariant();
+        return TrySplitOptionSymbol(symbol, out _, out _);
+    }
+
+    private static string ToStreamerKey(string symbol)
+    {
+        symbol = NormalizeDisplaySymbol(symbol);
+        return TrySplitOptionSymbol(symbol, out var root, out var suffix)
+            ? root.PadRight(6) + suffix
+            : symbol;
+    }
+
+    private static string NormalizeDisplaySymbol(string symbol)
+    {
+        symbol = symbol.Trim().ToUpperInvariant();
+        return TrySplitOptionSymbol(symbol, out var root, out var suffix)
+            ? root.Trim() + suffix
+            : symbol;
+    }
+
+    private static bool TrySplitOptionSymbol(string symbol, out string root, out string suffix)
+    {
+        symbol = symbol.Trim().ToUpperInvariant();
+        root = "";
+        suffix = "";
+
+        for (var i = 1; i <= Math.Min(6, symbol.Length - 15); i++)
+        {
+            var candidateSuffix = symbol[i..].TrimStart();
+            if (candidateSuffix.Length != 15) continue;
+            if (!candidateSuffix[..6].All(char.IsDigit)) continue;
+            if (candidateSuffix[6] is not ('C' or 'P')) continue;
+            if (!candidateSuffix[7..].All(char.IsDigit)) continue;
+
+            root = symbol[..i].Trim();
+            suffix = candidateSuffix;
+            return root.Length > 0;
+        }
+
+        return false;
+    }
 
     private static bool TryGetDecimal(JsonElement source, string property, out decimal value)
     {

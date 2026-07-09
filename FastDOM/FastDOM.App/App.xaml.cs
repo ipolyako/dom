@@ -134,6 +134,7 @@ public partial class App : Application
         services.AddTransient<PositionViewModel>();
         services.AddTransient<HotButtonsViewModel>();
         services.AddTransient<OrderTicketViewModel>();
+        services.AddTransient<DepthMapViewModel>();
         services.AddSingleton<WatchlistViewModel>();
 
         // Options

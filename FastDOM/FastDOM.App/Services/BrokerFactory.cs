@@ -58,13 +58,35 @@ public class BrokerFactory
     {
         var cfg    = _config.SchwabConfig;
         var ts     = _config.TokenSource;
-        var derby  = new DerbyTokenProvider(_loggerFactory.CreateLogger<DerbyTokenProvider>(), ts);
-        var auth   = new SchwabAuthProvider(_loggerFactory.CreateLogger<SchwabAuthProvider>(), cfg, derby, _config.TokenSource);
+        var tradeTokenSource = WithPurpose(ts, "TRADE");
+        var dataTokenSource  = WithPurpose(ts, "DATA");
+        var tradeDerby = new DerbyTokenProvider(_loggerFactory.CreateLogger<DerbyTokenProvider>(), tradeTokenSource);
+        var dataDerby  = new DerbyTokenProvider(_loggerFactory.CreateLogger<DerbyTokenProvider>(), dataTokenSource);
+        var tradeAuth  = new SchwabAuthProvider(_loggerFactory.CreateLogger<SchwabAuthProvider>(), cfg, tradeDerby, tradeTokenSource);
+        var dataAuth   = new SchwabAuthProvider(_loggerFactory.CreateLogger<SchwabAuthProvider>(), cfg, dataDerby, dataTokenSource);
         var mapper = new SchwabOrderMapper(_loggerFactory.CreateLogger<SchwabOrderMapper>());
-        var broker = new SchwabBrokerClient(_loggerFactory.CreateLogger<SchwabBrokerClient>(), cfg, auth, mapper);
-        var md     = new SchwabMarketDataClient(_loggerFactory.CreateLogger<SchwabMarketDataClient>(), cfg, auth);
+        var broker = new SchwabBrokerClient(_loggerFactory.CreateLogger<SchwabBrokerClient>(), cfg, tradeAuth, mapper);
+        var md     = new SchwabMarketDataClient(_loggerFactory.CreateLogger<SchwabMarketDataClient>(), cfg, dataAuth, tradeAuth);
         return (broker, md);
     }
+
+    private static TokenSourceConfig WithPurpose(TokenSourceConfig source, string purpose) => new()
+    {
+        Host = source.Host,
+        Port = source.Port,
+        Database = source.Database,
+        Schema = source.Schema,
+        User = source.User,
+        Password = source.Password,
+        AuthRefTable = source.AuthRefTable,
+        TokenTable = source.TokenTable,
+        AppKeyColumn = source.AppKeyColumn,
+        AppSecretColumn = source.AppSecretColumn,
+        AccountHashColumn = source.AccountHashColumn,
+        RefreshTokenColumn = source.RefreshTokenColumn,
+        Purpose = purpose,
+        AccountId = source.AccountId
+    };
 
     private (IBrokerClient, IMarketDataClient) CreateAlpaca(bool isPaper)
     {

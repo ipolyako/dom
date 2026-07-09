@@ -104,7 +104,7 @@ public class SchwabAuthProvider : IAuthProvider
                 _logger.LogWarning("schwab.token.override.json present but missing appKey or refreshToken");
                 return null;
             }
-            _logger.LogInformation("Using schwab.token.override.json for authentication (DB/bridge skipped)");
+            _logger.LogInformation("Using schwab.token.override.json for {Purpose} authentication (DB/bridge skipped)", _tokenSource.Purpose);
             if (!string.IsNullOrEmpty(accountHash)) _accountHash = accountHash;
             return await ExchangeRefreshTokenAsync(appKey, appSecret, refreshToken, ct);
         }
@@ -148,7 +148,7 @@ public class SchwabAuthProvider : IAuthProvider
             var expiresIn      = root.GetProperty("expires_in").GetInt32();
             _accessTokenExpiry = DateTime.UtcNow.AddSeconds(expiresIn - 60); // 60s buffer
 
-            _logger.LogInformation("Schwab access token obtained. Expires: {Exp}", _accessTokenExpiry);
+            _logger.LogInformation("Schwab {Purpose} access token obtained. Expires: {Exp}", _tokenSource.Purpose, _accessTokenExpiry);
             return true;
         }
         catch (Exception ex)
@@ -349,7 +349,8 @@ public class SchwabAuthProvider : IAuthProvider
                     : _schwabConfig.AccessTokenExpirySeconds;
                 _accessTokenExpiry = DateTime.UtcNow.AddSeconds(expiresIn - 60);
                 _logger.LogInformation(
-                    "Schwab access token obtained from agentquant bridge. Expires: {Exp}",
+                    "Schwab {Purpose} access token obtained from agentquant bridge. Expires: {Exp}",
+                    _tokenSource.Purpose,
                     _accessTokenExpiry);
                 return true;
             }

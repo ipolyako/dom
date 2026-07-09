@@ -35,11 +35,59 @@ public class ConfigManager
     private static string ResolveConfigDir()
     {
         var exeDir = AppContext.BaseDirectory;
+        var explicitDir = ResolveExplicitConfigDir();
+        if (!string.IsNullOrWhiteSpace(explicitDir))
+            return explicitDir;
+
+        var workspacePublish = ResolveWorkspacePublishDir(exeDir);
+        if (!string.IsNullOrWhiteSpace(workspacePublish))
+            return workspacePublish;
+
         if (File.Exists(Path.Combine(exeDir, "appsettings.json")))
             return exeDir;
+
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "FastDOM");
+    }
+
+    private static string? ResolveExplicitConfigDir()
+    {
+        var env = Environment.GetEnvironmentVariable("FASTDOM_CONFIG_DIR");
+        if (!string.IsNullOrWhiteSpace(env))
+            return Path.GetFullPath(env);
+
+        var args = Environment.GetCommandLineArgs();
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (string.Equals(args[i], "--config", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                return Path.GetFullPath(args[i + 1]);
+
+            const string prefix = "--config=";
+            if (args[i].StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return Path.GetFullPath(args[i][prefix.Length..]);
+        }
+
+        return null;
+    }
+
+    private static string? ResolveWorkspacePublishDir(string startDir)
+    {
+        var dir = new DirectoryInfo(startDir);
+        while (dir != null)
+        {
+            var publish = Path.Combine(dir.FullName, "publish");
+            if (Directory.Exists(publish) &&
+                (File.Exists(Path.Combine(publish, "appsettings.json")) ||
+                 File.Exists(Path.Combine(publish, "appsettings.example.json"))))
+            {
+                return publish;
+            }
+
+            dir = dir.Parent;
+        }
+
+        return null;
     }
 
     public void LoadAll()
@@ -76,7 +124,10 @@ public class ConfigManager
         foreach (var (real, example) in pairs)
         {
             var realPath    = Path.Combine(_configDir, real);
-            var examplePath = Path.Combine(exeDir, example);
+            var configExamplePath = Path.Combine(_configDir, example);
+            var examplePath = File.Exists(configExamplePath)
+                ? configExamplePath
+                : Path.Combine(exeDir, example);
             if (!File.Exists(realPath) && File.Exists(examplePath))
             {
                 File.Copy(examplePath, realPath);

@@ -34,6 +34,8 @@ public class SchwabBrokerClient : IBrokerClient
     private readonly Subject<OrderState> _orderSubject = new();
     private readonly Subject<bool> _connectionSubject = new();
     private readonly Dictionary<string, string> _accountHashes = []; // accountId → accountHash
+    private readonly List<AccountInfo> _accountCache = [];
+    private DateTime _throttleUntilUtc = DateTime.MinValue;
     private bool _connected;
 
     public bool IsConnected => _connected;
@@ -84,8 +86,11 @@ public class SchwabBrokerClient : IBrokerClient
 
     public async Task<IReadOnlyList<AccountInfo>> GetAccountsAsync(CancellationToken ct = default)
     {
+        if (_accountCache.Count > 0)
+            return _accountCache.ToList();
+
         var resp = await GetAsync("/accounts/accountNumbers", ct);
-        if (resp == null) return [];
+        if (resp == null) return _accountCache.ToList();
 
         try
         {
@@ -103,6 +108,8 @@ public class SchwabBrokerClient : IBrokerClient
                     AccountType  = null
                 });
             }
+            _accountCache.Clear();
+            _accountCache.AddRange(list);
             return list;
         }
         catch (Exception ex)
@@ -501,6 +508,12 @@ public class SchwabBrokerClient : IBrokerClient
 
     private async Task<JsonElement?> GetAsync(string path, CancellationToken ct)
     {
+        if (DateTime.UtcNow < _throttleUntilUtc)
+        {
+            _logger.LogDebug("Schwab GET {Path} skipped during rate-limit cooldown until {Until}", path, _throttleUntilUtc);
+            return null;
+        }
+
         var token = await _auth.GetAccessTokenAsync(ct);
         if (string.IsNullOrEmpty(token)) return null;
 
@@ -512,6 +525,13 @@ public class SchwabBrokerClient : IBrokerClient
             var resp = await _http.SendAsync(req, ct);
             if (!resp.IsSuccessStatusCode)
             {
+                if ((int)resp.StatusCode == 429)
+                {
+                    _throttleUntilUtc = DateTime.UtcNow.AddSeconds(45);
+                    _logger.LogWarning("Schwab rate limit hit on GET {Path}; pausing broker polling until {Until}", path, _throttleUntilUtc);
+                    return null;
+                }
+
                 _logger.LogError("Schwab GET {Path} failed: {Status}", path, resp.StatusCode);
                 return null;
             }

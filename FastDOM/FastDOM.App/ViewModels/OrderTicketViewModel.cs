@@ -25,6 +25,7 @@ public partial class OrderTicketViewModel : ObservableObject
     [ObservableProperty] private bool _extendedHours;
     [ObservableProperty] private string _statusMessage = "";
     [ObservableProperty] private decimal? _lastPrice;
+    [ObservableProperty] private decimal? _atr;
 
     public List<OrderSide> OrderSides { get; } = [OrderSide.Buy, OrderSide.Sell];
 
@@ -57,10 +58,27 @@ public partial class OrderTicketViewModel : ObservableObject
 
     partial void OnOrderTypeChanged(OrderType value)
     {
-        if (LimitPrice == null && LastPrice.HasValue && NeedsLimitPrice(value))
+        if (value == OrderType.StopMarket)
+        {
+            LimitPrice = null;
+            StopPrice ??= DefaultStopPrice();
+        }
+        else if (LimitPrice == null && LastPrice.HasValue && NeedsLimitPrice(value))
+        {
             LimitPrice = LastPrice;
+        }
+
+        if (value == OrderType.StopLimit)
+            StopPrice ??= DefaultStopPrice();
+
         if (IsStopType(value))
             AutoInferStopSide();
+    }
+
+    partial void OnLastPriceChanged(decimal? value)
+    {
+        if (OrderType == OrderType.StopMarket && !StopPrice.HasValue)
+            StopPrice = DefaultStopPrice();
     }
 
     partial void OnStopPriceChanged(decimal? value)
@@ -84,10 +102,47 @@ public partial class OrderTicketViewModel : ObservableObject
 
     public void PopulateFromDomClick(decimal price, OrderSide side, OrderType orderType)
     {
-        LimitPrice = price;
+        if (orderType == OrderType.StopMarket)
+        {
+            LimitPrice = null;
+            StopPrice = price;
+        }
+        else if (orderType == OrderType.StopLimit)
+        {
+            StopPrice = price;
+            LimitPrice ??= price;
+        }
+        else
+        {
+            StopPrice = null;
+            LimitPrice = price;
+        }
+
         Side = side;
         OrderType = orderType;
         StatusMessage = $"Ready: {side} {orderType} @ {price:F2}";
+    }
+
+    public void ResetForSymbol(string symbol)
+    {
+        Symbol = symbol;
+        LimitPrice = null;
+        StopPrice = null;
+        LastPrice = null;
+        StatusMessage = "";
+    }
+
+    private decimal? DefaultStopPrice()
+    {
+        if (!LastPrice.HasValue || LastPrice <= 0) return null;
+
+        // TODO: Replace the fallback with a real ATR feed once historical bars are available
+        // to the ticket. Until then use a conservative 1% of last price as the ATR estimate.
+        var atr = Atr.HasValue && Atr > 0
+            ? Atr.Value
+            : Math.Max(0.01m, LastPrice.Value * 0.01m);
+
+        return Math.Round(Math.Max(0.01m, LastPrice.Value - atr), 2, MidpointRounding.AwayFromZero);
     }
 
     [RelayCommand]

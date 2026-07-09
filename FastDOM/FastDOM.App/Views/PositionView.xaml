@@ -17,13 +17,13 @@
             </Border>
 
             <!-- Column headers -->
-            <Border DockPanel.Dock="Top" Background="#FF0D0D0D" Padding="6,2">
+            <Border DockPanel.Dock="Top" Background="#FF0D0D0D" Padding="3,2">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="52"/>
-                        <ColumnDefinition Width="42"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="112"/>
+                        <ColumnDefinition Width="32"/>
+                        <ColumnDefinition Width="66"/>
+                        <ColumnDefinition Width="66"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="SYM"      FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold"/>
                     <TextBlock Grid.Column="1" Text="SHR"      FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right"/>
@@ -50,7 +50,7 @@
                                                 <ControlTemplate TargetType="Button">
                                                     <Border x:Name="Bg" Background="Transparent"
                                                             BorderBrush="#FF1A1A1A" BorderThickness="0,0,0,1"
-                                                            Padding="6,5">
+                                                            Padding="3,5">
                                                         <ContentPresenter/>
                                                     </Border>
                                                     <ControlTemplate.Triggers>
@@ -69,32 +69,32 @@
 
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="52"/>
-                                        <ColumnDefinition Width="42"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="112"/>
+                        <ColumnDefinition Width="32"/>
+                        <ColumnDefinition Width="66"/>
+                        <ColumnDefinition Width="66"/>
                                     </Grid.ColumnDefinitions>
 
                                     <TextBlock Grid.Column="0"
                                                Text="{Binding Symbol}"
-                                               FontSize="11" FontWeight="Bold" FontFamily="Consolas"
+                                               FontSize="10" FontWeight="Bold" FontFamily="Consolas"
                                                Foreground="{Binding Side, Converter={StaticResource SideBrushConverter}}"/>
 
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding Qty}"
-                                               FontSize="11" FontFamily="Consolas"
+                                               FontSize="10" FontFamily="Consolas"
                                                Foreground="{Binding Side, Converter={StaticResource SideBrushConverter}}"
                                                TextAlignment="Right"/>
 
                                     <TextBlock Grid.Column="2"
                                                Text="{Binding OpenPnL}"
-                                               FontSize="11" FontFamily="Consolas"
+                                               FontSize="10" FontFamily="Consolas"
                                                Foreground="{Binding OpenPnLValue, Converter={StaticResource PnLBrushConverter}}"
                                                TextAlignment="Right" Margin="4,0"/>
 
                                     <TextBlock Grid.Column="3"
                                                Text="{Binding DayPnL}"
-                                               FontSize="11" FontFamily="Consolas"
+                                               FontSize="10" FontFamily="Consolas"
                                                Foreground="{Binding DayPnLValue, Converter={StaticResource PnLBrushConverter}}"
                                                TextAlignment="Right"/>
                                 </Grid>
@@ -111,3 +111,4 @@
         </DockPanel>
     </Border>
 </UserControl>
+

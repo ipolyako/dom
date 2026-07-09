@@ -207,9 +207,34 @@ public class SchwabOrderMapper
 
     private JsonElement BuildOco(OrderRequest req)
     {
-        throw new NotSupportedException(
-            "Standalone OCO must be built with two separate OrderRequests using the OCO builder pattern. " +
-            "Use the BracketConfig-based Bracket order type for full bracket orders.");
+        if (!req.LimitPrice.HasValue || !req.StopPrice.HasValue)
+            throw new ArgumentException("OCO exit requires both LimitPrice and StopPrice");
+
+        var limitExit = new Dictionary<string, object>
+        {
+            ["orderType"]         = "LIMIT",
+            ["session"]           = MapSession(req.Session),
+            ["duration"]          = MapTif(req.TimeInForce),
+            ["orderStrategyType"] = "SINGLE",
+            ["price"]             = req.LimitPrice.Value.ToString("F2"),
+            ["orderLegCollection"] = new[] { BuildLeg(req) }
+        };
+
+        var stopExit = new Dictionary<string, object>
+        {
+            ["orderType"]         = "STOP",
+            ["session"]           = MapSession(req.Session),
+            ["duration"]          = MapTif(req.TimeInForce),
+            ["orderStrategyType"] = "SINGLE",
+            ["stopPrice"]         = req.StopPrice.Value.ToString("F2"),
+            ["orderLegCollection"] = new[] { BuildLeg(req) }
+        };
+
+        return ToElement(new Dictionary<string, object>
+        {
+            ["orderStrategyType"] = "OCO",
+            ["childOrderStrategies"] = new[] { limitExit, stopExit }
+        });
     }
 
     private static Dictionary<string, object> BuildLeg(OrderRequest req) => new()

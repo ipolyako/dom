@@ -30,6 +30,8 @@ public partial class MainViewModel : ObservableObject
     private readonly ConfigManager _config;
     private readonly BrokerFactory _brokerFactory;
     private readonly DispatcherTimer _statusTimer;
+    private readonly DispatcherTimer _accountSyncTimer;
+    private bool _accountSyncInFlight;
 
     [ObservableProperty] private string _selectedSymbol = "SPY";
     [ObservableProperty] private string _selectedAccountId = "";
@@ -46,6 +48,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _marketDataStale;
     [ObservableProperty] private string _buyingPowerDisplay = "—";
     [ObservableProperty] private string _buyingPowerTooltip = "";
+    [ObservableProperty] private bool _showDepthMap;
 
     public ObservableCollection<AccountInfo> Accounts { get; } = [];
     public ObservableCollection<string> ActivityLog { get; } = [];
@@ -66,6 +69,7 @@ public partial class MainViewModel : ObservableObject
     public HotButtonsViewModel HotButtonsViewModel { get; }
     public OrderTicketViewModel OrderTicketViewModel { get; }
     public WatchlistViewModel WatchlistViewModel { get; }
+    public DepthMapViewModel DepthMapViewModel { get; }
 
     public MainViewModel(
         ILogger<MainViewModel> logger,
@@ -81,7 +85,8 @@ public partial class MainViewModel : ObservableObject
         PositionViewModel posVm,
         HotButtonsViewModel hotVm,
         OrderTicketViewModel ticketVm,
-        WatchlistViewModel watchlistVm)
+        WatchlistViewModel watchlistVm,
+        DepthMapViewModel depthMapVm)
     {
         _logger = logger;
         _broker = broker;
@@ -98,6 +103,7 @@ public partial class MainViewModel : ObservableObject
         HotButtonsViewModel = hotVm;
         OrderTicketViewModel = ticketVm;
         WatchlistViewModel = watchlistVm;
+        DepthMapViewModel = depthMapVm;
 
         watchlistVm.SymbolSelected += sym =>
         {
@@ -118,6 +124,7 @@ public partial class MainViewModel : ObservableObject
 
         ShareSize = config.AppSettings.DefaultShareSize;
         SelectedSymbol = config.AppSettings.DefaultSymbol;
+        ShowDepthMap = config.AppSettings.ShowDepthMap;
 
         _broker.ConnectionStateStream.Subscribe(connected =>
             Application.Current.Dispatcher.Invoke(() =>
@@ -137,6 +144,13 @@ public partial class MainViewModel : ObservableObject
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _statusTimer.Tick += (_, _) => UpdateDataAge();
         _statusTimer.Start();
+
+        // Reconcile external Schwab/TOS changes for the selected account.
+        // Market data uses the separate DATA token; this TRADE-token sync is
+        // intentionally bounded and still backs off when Schwab returns 429.
+        _accountSyncTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _accountSyncTimer.Tick += async (_, _) => await SyncExternalAccountStateAsync();
+        _accountSyncTimer.Start();
     }
 
     partial void OnSelectedModeChanged(TradingModeOption value)
@@ -210,7 +224,8 @@ public partial class MainViewModel : ObservableObject
             var preferred = _config.AppSettings.DefaultAccountId;
             var toUse = accounts.FirstOrDefault(a =>
                 !string.IsNullOrWhiteSpace(preferred) &&
-                string.Equals(a.AccountId, preferred, StringComparison.OrdinalIgnoreCase))?.AccountId
+                (string.Equals(a.AccountId, preferred, StringComparison.OrdinalIgnoreCase) ||
+                 a.AccountId.EndsWith(preferred, StringComparison.OrdinalIgnoreCase)))?.AccountId
                 ?? accounts[0].AccountId;
 
             if (string.IsNullOrEmpty(SelectedAccountId) || !accounts.Any(a => a.AccountId == SelectedAccountId))
@@ -280,6 +295,30 @@ public partial class MainViewModel : ObservableObject
         await ChangeSymbolAsync();
     }
 
+    private async Task SyncExternalAccountStateAsync()
+    {
+        if (_accountSyncInFlight || !IsConnected || string.IsNullOrWhiteSpace(SelectedAccountId))
+            return;
+
+        _accountSyncInFlight = true;
+        try
+        {
+            await _orderService.SyncOrdersAsync(SelectedAccountId);
+
+            await PositionViewModel.RefreshAsync(SelectedAccountId, SelectedSymbol);
+
+            await RefreshBuyingPowerAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "External Schwab account sync failed");
+        }
+        finally
+        {
+            _accountSyncInFlight = false;
+        }
+    }
+
     [RelayCommand]
     private async Task ChangeSymbolAsync()
     {
@@ -315,7 +354,9 @@ public partial class MainViewModel : ObservableObject
         {
             var priceStr = state.AverageFillPrice.HasValue
                 ? $" @{state.AverageFillPrice:F2}"
-                : state.LimitPrice.HasValue ? $" @{state.LimitPrice:F2}" : " MKT";
+                : state.LimitPrice.HasValue ? $" @{state.LimitPrice:F2}"
+                : state.StopPrice.HasValue ? $" STOP @{state.StopPrice:F2}"
+                : " MKT";
             LogActivity($"Order {state.Status}: {state.Side} {state.QuantityOrdered} {state.Symbol}{priceStr}");
             // Each order is stored under both ClientOrderId and BrokerOrderId keys; dedupe.
             var uniqueOrders = _orderService.ActiveOrders.Values
@@ -324,7 +365,8 @@ public partial class MainViewModel : ObservableObject
             DomViewModel.RefreshOrders(uniqueOrders);
             HasOpenOrders = uniqueOrders.Any(o => o.IsWorking);
 
-            if (state.Status is OrderStatus.Filled or OrderStatus.PartiallyFilled)
+            if (state.Symbol == SelectedSymbol &&
+                state.Status is OrderStatus.Filled or OrderStatus.PartiallyFilled)
             {
                 _ = PositionViewModel.RefreshAsync(SelectedAccountId, state.Symbol);
                 _ = RefreshBuyingPowerAsync();
@@ -376,13 +418,19 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnSelectedSymbolChanged(string value)
     {
-        OrderTicketViewModel.Symbol = value;
+        OrderTicketViewModel.ResetForSymbol(value);
         DomViewModel.Symbol = value;
     }
 
     partial void OnShareSizeChanged(int value)
     {
         OrderTicketViewModel.Quantity = value;
+    }
+
+    partial void OnShowDepthMapChanged(bool value)
+    {
+        _config.AppSettings.ShowDepthMap = value;
+        _config.Save("appsettings.json", _config.AppSettings);
     }
 
     private void UpdateDataAge()

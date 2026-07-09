@@ -6,8 +6,8 @@
         xmlns:views="clr-namespace:FastDOM.App.Views"
         mc:Ignorable="d"
         Title="FastDOM — Execution Terminal"
-        Height="870" Width="880"
-        MinHeight="700" MinWidth="820"
+        Height="870" Width="980"
+        MinHeight="700" MinWidth="860"
         Background="{StaticResource BackgroundBrush}"
         Foreground="{StaticResource ForegroundBrush}"
         PreviewKeyDown="Window_KeyDown">
@@ -20,8 +20,8 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
@@ -47,7 +47,7 @@
                          Margin="0,0,4,0"/>
 
                 <!-- Account selector — border color reflects connection state -->
-                <ComboBox Grid.Column="2" Width="160" Margin="0,0,8,0"
+                <ComboBox Grid.Column="3" Width="178" Margin="0,0,8,0"
                           ItemsSource="{Binding Accounts}"
                           DisplayMemberPath="DisplayName"
                           SelectedValuePath="AccountId"
@@ -57,8 +57,8 @@
                           ToolTip="{Binding SelectedAccountId}"/>
 
                 <!-- Buying power -->
-                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center"
-                            Margin="12,0,0,0" ToolTip="{Binding BuyingPowerTooltip}">
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center"
+                            Margin="4,0,12,0" ToolTip="{Binding BuyingPowerTooltip}">
                     <TextBlock Text="BP " Foreground="{StaticResource SecondaryForeBrush}"
                                FontSize="11" VerticalAlignment="Center"/>
                     <TextBlock Text="{Binding BuyingPowerDisplay}" FontSize="12" FontWeight="Bold"
@@ -66,13 +66,13 @@
                 </StackPanel>
 
                 <!-- Orders button — orange when open orders exist -->
-                <Button Grid.Column="4" Content="Orders" Width="80" Margin="4,0"
+                <Button Grid.Column="5" Content="Orders" Width="80" Margin="4,0"
                         Background="{Binding HasOpenOrders, Converter={StaticResource OrdersBrushConverter}}"
                         Click="OrdersButton_Click"
                         ToolTip="View and cancel open orders"/>
 
                 <!-- Hotkeys armed indicator -->
-                <Border Grid.Column="5" CornerRadius="3" Padding="6,2" Margin="4,0,0,0"
+                <Border Grid.Column="6" CornerRadius="3" Padding="6,2" Margin="4,0,0,0"
                         Background="{Binding HotkeysArmed, Converter={StaticResource HotkeyBrushConverter}}"
                         ToolTip="Click to toggle hotkeys" Cursor="Hand"
                         MouseLeftButtonUp="HotkeyIndicator_Click">
@@ -81,13 +81,13 @@
                 </Border>
 
                 <!-- Hotkey settings button -->
-                <Button Grid.Column="6" Content="⚙" Width="26" Height="26" Margin="2,0,0,0"
+                <Button Grid.Column="7" Content="⚙" Width="26" Height="26" Margin="2,0,0,0"
                         FontSize="14" Padding="0"
                         ToolTip="Configure hotkeys"
                         Click="HotkeySettings_Click"/>
 
                 <!-- Options chain button -->
-                <Button Grid.Column="7" Content="OPT" Width="40" Height="26" Margin="2,0,0,0"
+                <Button Grid.Column="8" Content="OPT" Width="40" Height="26" Margin="2,0,0,0"
                         FontSize="11" FontWeight="Bold" Padding="0"
                         ToolTip="Open options chain"
                         Click="OpenOptionsChain_Click"/>
@@ -116,7 +116,7 @@
         <!-- MAIN LAYOUT -->
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260"/>   <!-- Position + Order ticket -->
+                <ColumnDefinition Width="292"/>   <!-- Position + Order ticket -->
                 <ColumnDefinition Width="*"/>     <!-- DOM -->
                 <ColumnDefinition Width="220"/>   <!-- Hot buttons -->
             </Grid.ColumnDefinitions>
@@ -136,21 +136,42 @@
 
 <!-- Position panel — fixed height so the order ticket always has room -->
                 <views:PositionView DockPanel.Dock="Top" DataContext="{Binding PositionViewModel}"
-                                    Height="130"/>
+                                    Height="185"/>
 
                 <!-- Share size -->
                 <Border DockPanel.Dock="Top" Padding="8,4"
                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Size:" VerticalAlignment="Center" Width="35"/>
-                        <TextBox Width="70" Text="{Binding ShareSize, UpdateSourceTrigger=PropertyChanged}"
-                                 x:Name="ShareSizeBox"/>
-                        <Button Content="100" Width="40" Margin="4,0,0,0"
-                                Click="SizePreset_Click" Tag="100"/>
-                        <Button Content="200" Width="40" Margin="2,0"
-                                Click="SizePreset_Click" Tag="200"/>
-                        <Button Content="500" Width="40"
-                                Click="SizePreset_Click" Tag="500"/>
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="35"/>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Size:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" Text="{Binding ShareSize, UpdateSourceTrigger=PropertyChanged}"
+                                     x:Name="ShareSizeBox"/>
+                            <UniformGrid Grid.Column="2" Rows="1" Columns="4" Margin="4,0,0,0">
+                                <Button Content="100" Margin="0,0,3,0"
+                                        Click="SizePreset_Click" Tag="100"/>
+                                <Button Content="200" Margin="0,0,3,0"
+                                        Click="SizePreset_Click" Tag="200"/>
+                                <Button Content="500" Margin="0,0,3,0"
+                                        Click="SizePreset_Click" Tag="500"/>
+                                <Button Content="1K"
+                                        Click="SizePreset_Click" Tag="1000"/>
+                            </UniformGrid>
+                        </Grid>
+                        <UniformGrid Rows="1" Columns="4" Margin="35,4,0,0">
+                            <Button Content="2K" Margin="0,0,4,0"
+                                    Click="SizePreset_Click" Tag="2000"/>
+                            <Button Content="3K" Margin="0,0,4,0"
+                                    Click="SizePreset_Click" Tag="3000"/>
+                            <Button Content="5K" Margin="0,0,4,0"
+                                    Click="SizePreset_Click" Tag="5000"/>
+                            <Button Content="10K"
+                                    Click="SizePreset_Click" Tag="10000"/>
+                        </UniformGrid>
                     </StackPanel>
                 </Border>
 
@@ -219,17 +240,26 @@
                 </Border>
 
                 <!-- Quote strip — sits between position summary and DOM levels -->
-                <Border DockPanel.Dock="Top" Background="#FF0A0A0A" Padding="6,3"
+                <Border DockPanel.Dock="Top" Background="#FF0A0A0A" Padding="6,4"
+                        MinHeight="27"
                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="{Binding QuoteDisplay}" FontSize="12" FontWeight="Bold"
-                                   Foreground="{StaticResource LastBrush}" VerticalAlignment="Center"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding QuoteDisplay}" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource LastBrush}"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"/>
                         <Border CornerRadius="3" Padding="4,1" Margin="8,0,0,0"
+                                Grid.Column="1"
                                 Background="{Binding MarketDataStale, Converter={StaticResource StaleBackgroundConverter}}">
                             <TextBlock Text="{Binding DataAgeDisplay}" FontSize="11"
                                        Foreground="{Binding MarketDataStale, Converter={StaticResource StaleForeConverter}}"/>
                         </Border>
-                    </StackPanel>
+                    </Grid>
                 </Border>
 
                 <views:DomView DataContext="{Binding DomViewModel}"
@@ -245,6 +275,26 @@
                             BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
                         <views:WatchlistView DataContext="{Binding WatchlistViewModel}"/>
                     </Border>
+                    <Border DockPanel.Dock="Top" Padding="8,6"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,0,1"
+                            DataContext="{Binding HotButtonsViewModel}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="42"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Risk:" VerticalAlignment="Center"
+                                       FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource SecondaryForeBrush}"/>
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding RiskAmount, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"
+                                     FontFamily="Consolas"
+                                     FontWeight="Bold"
+                                     VerticalContentAlignment="Center"
+                                     ToolTip="Dollar risk used by the Risk Buy hot button"/>
+                        </Grid>
+                    </Border>
                     <!-- Hot buttons fills remaining space -->
                     <views:HotButtonsView DataContext="{Binding HotButtonsViewModel}"
                                           HotButtonExecuted="OnHotButtonExecuted"
@@ -254,3 +304,5 @@
         </Grid>
     </DockPanel>
 </Window>
+
+

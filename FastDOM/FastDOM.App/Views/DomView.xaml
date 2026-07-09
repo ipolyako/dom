@@ -51,8 +51,23 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button Content="-" Width="24" FontSize="11" Margin="2,0"
+                            Command="{Binding DecreaseDepthCommand}"
+                            ToolTip="Show fewer DOM price levels"/>
+                    <TextBlock Text="{Binding VisibleLevels, StringFormat={}{0} lvls}"
+                               Width="54"
+                               FontFamily="Consolas"
+                               FontSize="11"
+                               Foreground="{StaticResource SecondaryForeBrush}"
+                               TextAlignment="Center"
+                               VerticalAlignment="Center"
+                               ToolTip="Current DOM ladder depth"/>
+                    <Button Content="+" Width="24" FontSize="11" Margin="2,0"
+                            Command="{Binding IncreaseDepthCommand}"
+                            ToolTip="Show more DOM price levels"/>
                     <Button Content="Lock" Width="50" FontSize="11" Margin="2,0"
-                            Click="LockButton_Click"/>
+                            Click="LockButton_Click"
+                            ToolTip="Lock/follow the ladder around the last traded price"/>
                     <Button Content="Center" Width="55" FontSize="11" Margin="2,0"
                             Click="CenterButton_Click"/>
                     <CheckBox Content="Lock" IsChecked="{Binding IsLocked}"
@@ -90,12 +105,12 @@
         </Grid>
 
         <!-- DOM price ladder -->
-        <ScrollViewer x:Name="DomScroller" VerticalScrollBarVisibility="Hidden"
+        <ScrollViewer x:Name="DomScroller" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <ItemsControl x:Name="DomRows" ItemsSource="{Binding Rows}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Grid x:Name="DomRow" Height="20" Cursor="Hand"
+                        <Grid x:Name="DomRow" Height="18" Cursor="Hand"
                               MouseLeftButtonDown="DomRow_MouseLeftButtonDown"
                               MouseLeftButtonUp="DomRow_MouseLeftButtonUp"
                               MouseMove="DomRow_MouseMove"
@@ -148,9 +163,8 @@
                                                 Background="#DD880000" Foreground="White" BorderThickness="0"
                                                 Cursor="Hand"
                                                 ToolTip="Cancel order(s) at this price"
-                                                Command="{Binding DataContext.CancelAtPriceCommand,
-                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding Price}"/>
+                                                Tag="Buy"
+                                                Click="OrderMarkerCancel_Click"/>
                                         <TextBlock Text="{Binding BuyOrderSummary}"
                                                    FontFamily="Consolas" FontSize="11" FontWeight="Bold"
                                                    Foreground="#FF90EE90"
@@ -182,13 +196,27 @@
                                            Width="{Binding BidSize, Converter={StaticResource SizeToWidthConverter}}"
                                            Fill="{StaticResource BidBrush}" Opacity="0.4" MaxWidth="58"/>
                                 <TextBlock Text="{Binding BidSize}" Style="{StaticResource PriceCell}"
-                                           Foreground="{StaticResource SecondaryForeBrush}"/>
+                                           Foreground="#FFEAF4FF"
+                                           FontWeight="Bold"/>
                             </Grid>
 
                             <!-- Price column -->
                             <Border Grid.Column="2">
-                                <TextBlock Text="{Binding Price, StringFormat=F2}" Style="{StaticResource PriceCell}"
-                                           FontWeight="{Binding IsLast, Converter={StaticResource BoldConverter}}"/>
+                                <TextBlock Text="{Binding Price, StringFormat=F2}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource PriceCell}">
+                                            <Setter Property="FontWeight" Value="Normal"/>
+                                            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsLast}" Value="True">
+                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                    <Setter Property="FontSize" Value="14"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource LastBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </Border>
 
                             <!-- Ask size bar -->
@@ -197,7 +225,8 @@
                                            Width="{Binding AskSize, Converter={StaticResource SizeToWidthConverter}}"
                                            Fill="{StaticResource AskBrush}" Opacity="0.4" MaxWidth="58"/>
                                 <TextBlock Text="{Binding AskSize}" Style="{StaticResource PriceCell}"
-                                           Foreground="{StaticResource SecondaryForeBrush}"/>
+                                           Foreground="#FFFFECEA"
+                                           FontWeight="Bold"/>
                             </Grid>
 
                             <!-- SELL orders at this price. × on left edge = cancel. Body = drag zone. -->
@@ -211,9 +240,8 @@
                                             Background="#DD880000" Foreground="White" BorderThickness="0"
                                             Cursor="Hand"
                                             ToolTip="Cancel order(s) at this price"
-                                            Command="{Binding DataContext.CancelAtPriceCommand,
-                                                      RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding Price}"/>
+                                            Tag="Sell"
+                                            Click="OrderMarkerCancel_Click"/>
                                     <TextBlock Text="{Binding SellOrderSummary}"
                                                FontFamily="Consolas" FontSize="11" FontWeight="Bold"
                                                Foreground="#FFFF9090"

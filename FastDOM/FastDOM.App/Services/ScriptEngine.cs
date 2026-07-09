@@ -112,8 +112,12 @@ public class ScriptEngine
             {
                 var side  = verb == "BUY" ? OrderSide.Buy : OrderSide.Sell;
                 var size  = ParseSize(tokens, ref pos);
-                var oType = Peek() is "LMT" or "LIMIT" ? (Take(), OrderType.Limit).Item2
-                                                        : OrderType.Market;
+                var oType = Peek() switch
+                {
+                    "LMT" or "LIMIT" => (Take(), OrderType.Limit).Item2,
+                    "MKT" or "MARKET" => (Take(), OrderType.Market).Item2,
+                    _ => OrderType.Market
+                };
                 PriceExpr? limitP = oType == OrderType.Limit ? ParsePrice(tokens, ref pos) : null;
                 PriceExpr? stopP  = null;
                 if (Peek() == "STOP") { Take(); stopP = ParsePrice(tokens, ref pos); }
@@ -122,7 +126,13 @@ public class ScriptEngine
                 decimal? stopVal  = ResolvePrice(stopP,  ctx.Quote, vars: ctx.Variables);
                 int qty = ResolveSize(size, ctx.DefaultSize, ctx.Position, ctx.Quote, limitVal, stopVal);
 
-                if (qty <= 0) { ctx.Toast("Size resolved to 0 — order not placed"); return prevEntry; }
+                if (qty <= 0)
+                {
+                    ctx.Toast(size.Kind == SizeKind.Risk
+                        ? "Risk size resolved to 0 — check quote and stop distance"
+                        : "Size resolved to 0 — order not placed");
+                    return prevEntry;
+                }
 
                 // Store qty so BRACKET can size targets even before fill is confirmed
                 ctx.Variables["__LASTQTY__"] = qty;
@@ -179,9 +189,73 @@ public class ScriptEngine
                 return prevEntry;
             }
 
+            case "SECURE":
+            {
+                await RunSecureAsync(tokens, pos, ctx);
+                return prevEntry;
+            }
+
             default:
                 throw new ScriptException($"Unknown command: {verb}");
         }
+    }
+
+    private async Task RunSecureAsync(List<string> tokens, int pos, ScriptContext ctx)
+    {
+        PriceExpr? stopP = null;
+
+        while (pos < tokens.Count)
+        {
+            var kw = tokens[pos++];
+            if (kw == "STOP")
+                stopP = ParsePrice(tokens, ref pos);
+        }
+
+        if (stopP == null) { ctx.Toast("SECURE: STOP price required"); return; }
+
+        var livePos = ctx.Position ?? await FetchPositionAsync(ctx);
+        if (livePos == null || livePos.IsFlat)
+        {
+            ctx.Toast("SECURE: no open position");
+            return;
+        }
+
+        var entry = livePos.AverageCost;
+        if (entry <= 0)
+        {
+            ctx.Toast("SECURE: position average cost unavailable");
+            return;
+        }
+
+        decimal? stopVal = ResolvePrice(stopP, ctx.Quote, entry, vars: ctx.Variables);
+        if (stopVal == null) { ctx.Toast("SECURE: could not resolve STOP price"); return; }
+
+        if (livePos.Side == PositionSide.Long && stopVal >= entry)
+        {
+            ctx.Toast($"SECURE: long stop {stopVal:F2} must be below entry {entry:F2}");
+            return;
+        }
+        if (livePos.Side == PositionSide.Short && stopVal <= entry)
+        {
+            ctx.Toast($"SECURE: short stop {stopVal:F2} must be above entry {entry:F2}");
+            return;
+        }
+
+        await ctx.Orders.CancelAllForSymbolAsync(ctx.AccountId, ctx.Symbol);
+
+        ctx.Variables["__LASTQTY__"] = Math.Abs(livePos.Quantity);
+        var targetSign = livePos.Side == PositionSide.Long ? "+" : "-";
+        var bracketTokens = new List<string>
+        {
+            "BRACKET", "STOP", "$STOP",
+            "T1", $"ENTRY{targetSign}1R", "PCT:20",
+            "T2", $"ENTRY{targetSign}2R", "PCT:20",
+            "T3", $"ENTRY{targetSign}3R", "PCT:20",
+            "T4", $"ENTRY{targetSign}4R", "PCT:20",
+            "T5", $"ENTRY{targetSign}5R", "PCT:20",
+        };
+
+        await RunBracketAsync(bracketTokens, 1, ctx, entry);
     }
 
     private async Task RunBracketAsync(List<string> tokens, int pos, ScriptContext ctx, decimal? entry)
@@ -233,10 +307,12 @@ public class ScriptEngine
             ? (entry.Value > stopVal.Value ? OrderSide.Sell : OrderSide.Buy)
             : OrderSide.Sell;
 
-        // Place stop order for full position
-        await PlaceAsync(ctx, exitSide, totalQty, OrderType.StopMarket, null, stopVal);
+        var targetsPlaced = 0;
 
-        // Place target limit orders
+        // Place target exits. When a stop is present, each target tranche is an
+        // OCO: sell limit target + stop for that same tranche. This avoids
+        // submitting one full-size independent stop that can consume the whole
+        // position and cause Schwab to reject the sell-limit ladder.
         if (targets.Count > 0)
         {
             int remaining = totalQty;
@@ -260,11 +336,21 @@ public class ScriptEngine
                 if (tQty <= 0) break;
                 remaining -= tQty;
 
-                await PlaceAsync(ctx, exitSide, tQty, OrderType.Limit, tVal, null);
+                await PlaceAsync(ctx, exitSide, tQty,
+                    stopVal.HasValue ? OrderType.OCO : OrderType.Limit,
+                    tVal, stopVal);
+                targetsPlaced++;
             }
         }
+        else
+        {
+            // No targets specified: just place the protective stop.
+            await PlaceAsync(ctx, exitSide, totalQty, OrderType.StopMarket, null, stopVal);
+        }
 
-        ctx.Toast($"Bracket set: stop @ {stopVal:F2} + {targets.Count} target{(targets.Count == 1 ? "" : "s")}");
+        ctx.Toast(targetsPlaced > 0
+            ? $"Bracket set: {targetsPlaced} OCO target{(targetsPlaced == 1 ? "" : "s")} with stop @ {stopVal:F2}"
+            : $"Bracket set: stop @ {stopVal:F2}");
     }
 
     // A token is a size token (vs a price token) when it unambiguously denotes a quantity.

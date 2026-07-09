@@ -105,14 +105,14 @@ public class RiskManager : IRiskManager
         if (!_profile.AllowExtendedHours && request.ExtendedHours)
             return RiskValidationResult.Reject("Extended hours trading is not enabled", RiskRejectCode.ExtendedHoursNotAllowed);
 
-        if (IsDailyLossLimitTriggered(request.AccountId))
+        if (_profile.MaxDailyLoss > 0 && IsDailyLossLimitTriggered(request.AccountId))
             return RiskValidationResult.Reject(
                 $"Daily loss limit of ${_profile.MaxDailyLoss} reached. Only closing orders allowed.",
                 RiskRejectCode.DailyLossLimitTriggered);
 
         // Rate limiting
         CleanOldOrders();
-        if (_recentOrderTimes.Count >= _profile.MaxOrdersPerMinute)
+        if (_profile.MaxOrdersPerMinute > 0 && _recentOrderTimes.Count >= _profile.MaxOrdersPerMinute)
             return RiskValidationResult.Reject(
                 $"Order rate limit exceeded ({_profile.MaxOrdersPerMinute}/min)",
                 RiskRejectCode.OrderRateLimitExceeded);
@@ -137,7 +137,7 @@ public class RiskManager : IRiskManager
         if (_killSwitchActive && actionType != "EmergencyFlattenCancel")
             return RiskValidationResult.Reject("Kill switch is active", RiskRejectCode.KillSwitchActive);
 
-        if (IsDailyLossLimitTriggered(account.AccountId) &&
+        if (_profile.MaxDailyLoss > 0 && IsDailyLossLimitTriggered(account.AccountId) &&
             !actionType.Contains("Flatten") && !actionType.Contains("Cancel") && !actionType.Contains("Close"))
             return RiskValidationResult.Reject("Daily loss limit triggered", RiskRejectCode.DailyLossLimitTriggered);
 

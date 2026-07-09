@@ -21,7 +21,7 @@ public partial class DomViewModel : ObservableObject
     private readonly DispatcherTimer _refreshTimer;
 
     [ObservableProperty] private string _symbol = "SPY";
-    [ObservableProperty] private int _visibleLevels = 40;
+    [ObservableProperty] private int _visibleLevels = 120;
     [ObservableProperty] private bool _isLocked;
     [ObservableProperty] private decimal _clickedPrice;
     [ObservableProperty] private bool _hasDepth;
@@ -102,6 +102,30 @@ public partial class DomViewModel : ObservableObject
         HasDepth = Rows.Count > 0 && Rows[0].HasRealDepth;
     }
 
+    partial void OnVisibleLevelsChanged(int value)
+    {
+        var clamped = Math.Clamp(value, 20, 400);
+        if (clamped != value)
+        {
+            VisibleLevels = clamped;
+            return;
+        }
+
+        _pendingUpdate = true;
+    }
+
+    [RelayCommand]
+    private void IncreaseDepth()
+    {
+        VisibleLevels = Math.Min(400, VisibleLevels + 100);
+    }
+
+    [RelayCommand]
+    private void DecreaseDepth()
+    {
+        VisibleLevels = Math.Max(20, VisibleLevels - 100);
+    }
+
     // Called by DOM view on left-click buy column
     public void OnBuyColumnClicked(decimal price, ModifierKeys modifiers)
     {
@@ -146,11 +170,25 @@ public partial class DomViewModel : ObservableObject
             await _orderService.CancelOrderAsync(CurrentAccountId, o.BrokerOrderId!);
     }
 
+    public async Task CancelOrderByIdAsync(string brokerOrderId)
+    {
+        if (CurrentAccountId == null || string.IsNullOrWhiteSpace(brokerOrderId)) return;
+        await _orderService.CancelOrderAsync(CurrentAccountId, brokerOrderId);
+    }
+
     // Mirrors the pinning logic in DomService.BuildLadder so market orders cancel correctly.
     private static bool IsOrderAtDisplayPrice(OrderState o, decimal price, FastDOM.MarketData.Models.Quote? q, FastDOM.Core.Models.SymbolInfo si)
     {
         if (o.LimitPrice.HasValue)
-            return si.RoundToTick(o.LimitPrice.Value) == price;
+        {
+            if (si.RoundToTick(o.LimitPrice.Value) == price)
+                return true;
+        }
+        if (o.StopPrice.HasValue)
+        {
+            if (si.RoundToTick(o.StopPrice.Value) == price)
+                return true;
+        }
         if (q == null) return false;
         var pin = o.Side == OrderSide.Buy
             ? (q.Ask > 0 ? q.Ask : q.Last)
@@ -197,7 +235,15 @@ public partial class DomViewModel : ObservableObject
         FastDOM.Core.Models.SymbolInfo si)
     {
         if (o.LimitPrice.HasValue)
-            return si.RoundToTick(o.LimitPrice.Value) == targetPrice;
+        {
+            if (si.RoundToTick(o.LimitPrice.Value) == targetPrice)
+                return true;
+        }
+        if (o.StopPrice.HasValue)
+        {
+            if (si.RoundToTick(o.StopPrice.Value) == targetPrice)
+                return true;
+        }
 
         if (q == null) return false;
         var pin = o.Side == OrderSide.Buy

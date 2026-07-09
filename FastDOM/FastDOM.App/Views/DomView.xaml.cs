@@ -32,6 +32,7 @@ public partial class DomView : UserControl
     }
 
     private DomViewModel? ViewModel => DataContext as DomViewModel;
+    private bool _centerQueued;
 
     public DomView()
     {
@@ -42,7 +43,7 @@ public partial class DomView : UserControl
     private void WireViewModel()
     {
         if (ViewModel == null) return;
-        ViewModel.Rows.CollectionChanged += (_, _) => CenterOnLast();
+        ViewModel.Rows.CollectionChanged += (_, _) => QueueCenterOnLast(force: false);
     }
 
     // Drag state for moving an existing working order to a new price.
@@ -57,7 +58,6 @@ public partial class DomView : UserControl
         if (sender is not FrameworkElement fe || fe.DataContext is not DomLadderRow row) return;
         if (IsDomRowCancelButtonClick(e.OriginalSource))
         {
-            e.Handled = true;
             return;
         }
         if (ViewModel?.IsLocked == true) return;
@@ -135,7 +135,6 @@ public partial class DomView : UserControl
         if (sender is not FrameworkElement fe) return;
         if (IsDomRowCancelButtonClick(e.OriginalSource))
         {
-            e.Handled = true;
             return;
         }
 
@@ -242,6 +241,88 @@ public partial class DomView : UserControl
         _ = ViewModel?.CancelOrdersAtPriceAsync(row.Price);
     }
 
+    private async void OrderMarkerCancel_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not Button btn || btn.DataContext is not DomLadderRow row || ViewModel == null)
+            return;
+
+        var side = string.Equals(btn.Tag as string, "Buy", StringComparison.OrdinalIgnoreCase)
+            ? OrderSide.Buy
+            : OrderSide.Sell;
+
+        var orders = (side == OrderSide.Buy ? row.BuyOrders : row.SellOrders)
+            .Where(o => !string.IsNullOrWhiteSpace(o.BrokerOrderId))
+            .DistinctBy(o => o.BrokerOrderId)
+            .ToList();
+
+        if (orders.Count == 0)
+            return;
+
+        if (orders.Count == 1)
+        {
+            await ViewModel.CancelOrderByIdAsync(orders[0].BrokerOrderId!);
+            return;
+        }
+
+        ShowOrderPicker(btn, row.Price, orders);
+    }
+
+    private void ShowOrderPicker(Button anchor, decimal rowPrice, IReadOnlyList<OrderState> orders)
+    {
+        var menu = new ContextMenu();
+
+        var title = new MenuItem
+        {
+            Header = $"{orders.Count} orders @ {rowPrice:F2}",
+            IsEnabled = false,
+            FontWeight = FontWeights.Bold
+        };
+        menu.Items.Add(title);
+        menu.Items.Add(new Separator());
+
+        foreach (var order in orders)
+        {
+            var item = new MenuItem { Header = "Cancel " + DescribeOrder(order, rowPrice) };
+            item.Click += async (_, _) =>
+            {
+                if (ViewModel != null && !string.IsNullOrWhiteSpace(order.BrokerOrderId))
+                    await ViewModel.CancelOrderByIdAsync(order.BrokerOrderId!);
+            };
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new Separator());
+        var all = new MenuItem { Header = $"Cancel all {orders.Count} at this marker" };
+        all.Click += async (_, _) =>
+        {
+            if (ViewModel == null) return;
+            foreach (var order in orders)
+            {
+                if (!string.IsNullOrWhiteSpace(order.BrokerOrderId))
+                    await ViewModel.CancelOrderByIdAsync(order.BrokerOrderId!);
+            }
+        };
+        menu.Items.Add(all);
+
+        anchor.ContextMenu = menu;
+        menu.PlacementTarget = anchor;
+        menu.IsOpen = true;
+    }
+
+    private static string DescribeOrder(OrderState order, decimal rowPrice)
+    {
+        var role = order.StopPrice.HasValue && order.StopPrice.Value == rowPrice
+            ? "STP"
+            : order.LimitPrice.HasValue && order.LimitPrice.Value == rowPrice
+                ? "LMT"
+                : order.OrderType.ToString();
+
+        var limit = order.LimitPrice.HasValue ? $" L:{order.LimitPrice:F2}" : "";
+        var stop = order.StopPrice.HasValue ? $" S:{order.StopPrice:F2}" : "";
+        return $"{order.Side} {order.QuantityRemaining} {order.Symbol} {role}{limit}{stop}";
+    }
+
     private void CancelAllSide(OrderSide side)
     {
         if (ViewModel?.CurrentAccountId == null) return;
@@ -253,10 +334,26 @@ public partial class DomView : UserControl
 
     private void LockButton_Click(object sender, RoutedEventArgs e)
     {
-        if (ViewModel != null) ViewModel.IsLocked = !ViewModel.IsLocked;
+        if (ViewModel == null) return;
+        ViewModel.IsLocked = !ViewModel.IsLocked;
+        QueueCenterOnLast(force: true);
     }
 
-    private void CenterButton_Click(object sender, RoutedEventArgs e) => CenterOnLast();
+    private void CenterButton_Click(object sender, RoutedEventArgs e) => QueueCenterOnLast(force: true);
+
+    private void QueueCenterOnLast(bool force)
+    {
+        if (ViewModel == null) return;
+        if (!force && !ViewModel.IsLocked) return;
+        if (_centerQueued) return;
+
+        _centerQueued = true;
+        Dispatcher.InvokeAsync(() =>
+        {
+            _centerQueued = false;
+            CenterOnLast();
+        }, System.Windows.Threading.DispatcherPriority.Background);
+    }
 
     private void CenterOnLast()
     {
@@ -264,12 +361,9 @@ public partial class DomView : UserControl
         var lastIdx = ViewModel.Rows.ToList().FindIndex(r => r.IsLast);
         if (lastIdx >= 0)
         {
-            // Scroll to center on last traded price
-            Dispatcher.Invoke(() =>
-            {
-                var container = DomRows.ItemContainerGenerator.ContainerFromIndex(lastIdx) as FrameworkElement;
-                container?.BringIntoView();
-            });
+            var rowHeight = 18.0;
+            var offset = Math.Max(0, (lastIdx * rowHeight) - (DomScroller.ViewportHeight / 2.0) + (rowHeight / 2.0));
+            DomScroller.ScrollToVerticalOffset(offset);
         }
     }
 

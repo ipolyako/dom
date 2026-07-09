@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.RegularExpressions;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FastDOM.App.Services;
@@ -23,11 +24,12 @@ public partial class HotButtonsViewModel : ObservableObject
 
     // ObservableCollection so the ItemsControl reacts to individual Add/Remove after save.
     public ObservableCollection<HotButtonConfig> Buttons { get; } = [];
+    [ObservableProperty] private decimal _riskAmount = 250m;
 
     public void RefreshButtons()
     {
         Buttons.Clear();
-        foreach (var b in _config.HotButtons)
+        foreach (var b in _config.HotButtons.OrderBy(b => b.DisplayOrder))
             Buttons.Add(b);
     }
 
@@ -51,9 +53,22 @@ public partial class HotButtonsViewModel : ObservableObject
     {
         if (!btn.IsEnabled) return;
 
+        if (IsSecureButton(btn))
+        {
+            var livePosition = position;
+            if (livePosition == null)
+            {
+                var summary = await _broker.GetAccountSummaryAsync(accountId);
+                summary.Positions.TryGetValue(symbol, out livePosition);
+            }
+            if (livePosition == null || livePosition.IsFlat)
+                return;
+        }
+
         if (!string.IsNullOrWhiteSpace(btn.Script))
         {
             _logger.LogInformation("Hot button script: {Label}", btn.Label);
+            var script = ApplyRiskAmountOverride(btn, btn.Script);
             var ctx = new ScriptContext
             {
                 Symbol      = symbol,
@@ -66,7 +81,7 @@ public partial class HotButtonsViewModel : ObservableObject
                 Toast       = msg => ToastRequested?.Invoke(msg),
                 PromptUser  = ShowInputDialogAsync,
             };
-            await _scriptEngine.ExecuteAsync(btn.Script, ctx);
+            await _scriptEngine.ExecuteAsync(script, ctx);
             return;
         }
 
@@ -76,6 +91,20 @@ public partial class HotButtonsViewModel : ObservableObject
             ResolvePrice(btn.PriceRule, quote, position),
             btn.OrderType, quote, position);
     }
+
+    private string ApplyRiskAmountOverride(HotButtonConfig btn, string script)
+    {
+        if (RiskAmount <= 0) return script;
+        var isRiskBuy = string.Equals(btn.Id, "risk_buy_5t", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(btn.Label, "Risk Buy", StringComparison.OrdinalIgnoreCase);
+        return isRiskBuy
+            ? Regex.Replace(script, @"RISK:\$\d+(\.\d+)?", $"RISK:${RiskAmount:0.##}", RegexOptions.IgnoreCase)
+            : script;
+    }
+
+    private static bool IsSecureButton(HotButtonConfig btn) =>
+        string.Equals(btn.Id, "secure_position", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(btn.Label, "Secure", StringComparison.OrdinalIgnoreCase);
 
     // Maps hotkey ActionType strings → HotButtonAction (shared with HotkeyService.ActionTypeMap).
     private static readonly IReadOnlyDictionary<string, HotButtonAction> _hotkeyMap =

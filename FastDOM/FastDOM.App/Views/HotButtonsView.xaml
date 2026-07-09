@@ -29,7 +29,7 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Button Width="100" Height="34" Margin="2"
+                        <Button Width="100" Height="30" Margin="2"
                                 Content="{Binding Label}"
                                 Background="{Binding Color}"
                                 Foreground="{Binding TextColor}"

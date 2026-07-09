@@ -91,7 +91,9 @@ public class DomService : IDisposable
 
         decimal center = _currentQuote.Last;
         decimal tick   = _symbolInfo.TickSize;
-        int halfLevels = visibleLevels / 2;
+        int totalLevels = Math.Clamp(visibleLevels, 20, 400);
+        int levelsAbove = totalLevels / 2;
+        int levelsBelow = totalLevels - levelsAbove - 1;
         bool hasRealDepth = _currentDepth?.HasRealDepth ?? false;
 
         // Market orders pin to best quote (ask for buys, bid for sells).
@@ -103,11 +105,12 @@ public class DomService : IDisposable
             if (!o.IsWorking) continue;
             var side = o.Side;
             var dict = side == Core.Enums.OrderSide.Buy ? _buyOrdersScratch : _sellOrdersScratch;
-            var key  = o.LimitPrice.HasValue
-                       ? _symbolInfo.RoundToTick(o.LimitPrice.Value)
-                       : (side == Core.Enums.OrderSide.Buy ? mktBuyPrice : mktSellPrice);
-            if (!dict.TryGetValue(key, out var list)) { list = new List<OrderState>(2); dict[key] = list; }
-            list.Add(o);
+            if (o.LimitPrice.HasValue)
+                AddOrderAt(dict, _symbolInfo.RoundToTick(o.LimitPrice.Value), o);
+            if (o.StopPrice.HasValue)
+                AddOrderAt(dict, _symbolInfo.RoundToTick(o.StopPrice.Value), o);
+            if (!o.LimitPrice.HasValue && !o.StopPrice.HasValue)
+                AddOrderAt(dict, side == Core.Enums.OrderSide.Buy ? mktBuyPrice : mktSellPrice, o);
         }
 
         decimal bidPrice = _symbolInfo.RoundToTick(_currentQuote.Bid);
@@ -118,7 +121,7 @@ public class DomService : IDisposable
         bool hasPosition = position != null && !position.IsFlat;
 
         int rowIndex = 0;
-        for (int i = halfLevels; i >= -halfLevels; i--)
+        for (int i = levelsAbove; i >= -levelsBelow; i--)
         {
             decimal price = _symbolInfo.RoundToTick(center + i * tick);
             bool isBid = price == bidPrice;
@@ -164,6 +167,12 @@ public class DomService : IDisposable
         }
         dst.Clear();
         for (int i = 0; i < src.Count; i++) dst.Add(src[i]);
+    }
+
+    private static void AddOrderAt(Dictionary<decimal, List<OrderState>> dict, decimal price, OrderState order)
+    {
+        if (!dict.TryGetValue(price, out var list)) { list = new List<OrderState>(2); dict[price] = list; }
+        list.Add(order);
     }
 
     private void OnQuote(Quote q)

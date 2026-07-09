@@ -79,6 +79,9 @@ public partial class MainWindow : Window
         var gesture = HotkeyService.BuildGestureString(e);
 
         // 1. Hot button shortcuts take priority over fixed bindings (explicit user assignment wins)
+        if (Keyboard.FocusedElement is TextBox && Keyboard.Modifiers == ModifierKeys.None)
+            return;
+
         var btn = _config.HotButtons.FirstOrDefault(b =>
             b.IsEnabled &&
             !string.IsNullOrWhiteSpace(b.KeyboardShortcut) &&
@@ -98,11 +101,6 @@ public partial class MainWindow : Window
         }
 
         // 2. Fixed hotkey bindings (HotkeyConfig)
-        // Skip if focus is on a text field and no modifier is held — those are text input,
-        // not hotkeys. Modifier combos (Ctrl+F, Ctrl+Shift+E) always fire.
-        if (Keyboard.FocusedElement is TextBox && Keyboard.Modifiers == ModifierKeys.None)
-            return;
-
         var action = _hotkeyService.ProcessKeyDown(e);
         if (action != null)
         {
@@ -285,7 +283,7 @@ public partial class MainWindow : Window
             _vm.SelectedSymbol,
             _vm.SelectedAccountId,
             _vm.ShareSize,
-            _vm.DomViewModel.Rows.FirstOrDefault() != null ? null : null,
+            _domService.CurrentQuote,
             pos);
     }
 

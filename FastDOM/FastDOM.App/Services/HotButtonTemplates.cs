@@ -129,6 +129,9 @@ public static class HotButtonTemplates
         [
             new("Flatten",            "Cancel all and flatten position at market", "FLAT MKT"),
             new("Reverse",            "Reverse position (cancel + double size)",   "REVERSE MKT"),
+            new("Secure Position",
+                "Prompts for stop price and surrounds current position with five 20% OCO target/stop tranches",
+                "DIALOG STOP\nSECURE STOP $STOP"),
             new("Cancel + Flatten",   "Cancel all working orders then flatten",
                 "CANCEL ALL\nFLAT MKT"),
         ],

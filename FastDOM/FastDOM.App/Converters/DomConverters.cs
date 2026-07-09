@@ -18,10 +18,8 @@ public class DomRowBrushConverter : IMultiValueConverter
         bool isLast = values.Length > 2 && values[2] is true;
         bool isPos = values.Length > 3 && values[3] is true;
 
-        if (isPos) return new SolidColorBrush(Color.FromArgb(60, 128, 0, 200));
-        if (isLast) return new SolidColorBrush(Color.FromArgb(40, 255, 213, 79));
-        if (isBid) return new SolidColorBrush(Color.FromArgb(30, 21, 101, 192));
-        if (isAsk) return new SolidColorBrush(Color.FromArgb(30, 183, 28, 28));
+        if (isPos) return new SolidColorBrush(Color.FromArgb(75, 128, 0, 200));
+        if (isLast) return new SolidColorBrush(Color.FromArgb(95, 255, 213, 79));
         return Brushes.Transparent;
     }
 
@@ -166,6 +164,21 @@ public class HotkeyLabelConverter : IValueConverter
         => value is true ? "HK ARMED" : "HK OFF";
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public class OrderDisplayPriceConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (values.Length > 0 && values[0] is decimal limitPrice)
+            return limitPrice.ToString("F2", culture);
+        if (values.Length > 1 && values[1] is decimal stopPrice)
+            return $"STOP @{stopPrice.ToString("F2", culture)}";
+        return "MKT";
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }
 

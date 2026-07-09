@@ -16,6 +16,11 @@ publish/logs/
 **/broker.schwab.json
 **/alpaca.json
 **/token.source.json
+**/schwab.token.override.json
+
+# Ephemeral python bridge scripts and DB2 side-car binaries stay local only
+scripts/
+FastDOM/FastDOM.App/rebuild/
 
 # OS / IDE
 .vs/

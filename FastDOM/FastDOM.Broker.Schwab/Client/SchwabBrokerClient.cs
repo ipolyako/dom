@@ -574,31 +574,62 @@ public class SchwabBrokerClient : IBrokerClient
 
     private static IReadOnlyList<OrderState> ParseOrders(string accountId, JsonElement root)
     {
+        // Schwab wraps TRIGGER / OCO / bracket strategies as a parent object
+        // whose own fields are empty (quantity=0, no orderLegCollection) — the
+        // real orders are inside `childOrderStrategies`. Recursively flatten so
+        // we surface every real leaf order the account has.
         var orders = new List<OrderState>();
         foreach (var item in root.EnumerateArray())
-            orders.Add(ParseSingleOrder(accountId, item));
+            FlattenOrders(accountId, item, orders);
         return orders;
+    }
+
+    private static void FlattenOrders(string accountId, JsonElement item, List<OrderState> orders)
+    {
+        var parsed = ParseSingleOrder(accountId, item);
+        // Only surface entries that look like a real leaf order — has a symbol,
+        // has legs, and has a non-zero quantity. This drops Schwab's strategy
+        // wrapper objects which would otherwise show up as blank rows.
+        if (!string.IsNullOrEmpty(parsed.Symbol) && parsed.QuantityOrdered > 0)
+            orders.Add(parsed);
+
+        if (item.TryGetProperty("childOrderStrategies", out var kids) &&
+            kids.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var kid in kids.EnumerateArray())
+                FlattenOrders(accountId, kid, orders);
+        }
     }
 
     private static OrderState ParseSingleOrder(string accountId, JsonElement item)
     {
-        var brokerId = item.TryGetProperty("orderId", out var oid) ? oid.GetInt64().ToString() : "?";
+        var brokerId = item.TryGetProperty("orderId", out var oid) && oid.ValueKind == JsonValueKind.Number
+                       ? oid.GetInt64().ToString() : "?";
         var status = item.TryGetProperty("status", out var st) ? MapStatus(st.GetString()) : OrderStatus.Unknown;
-        var qty = item.TryGetProperty("quantity", out var q) ? (int)q.GetDecimal() : 0;
-        var filled = item.TryGetProperty("filledQuantity", out var fq) ? (int)fq.GetDecimal() : 0;
-        var orderType = item.TryGetProperty("orderType", out var ot) ? ot.GetString() : "MARKET";
-        var price = item.TryGetProperty("price", out var p) ? p.GetDecimal() : (decimal?)null;
-        var stopPrice = item.TryGetProperty("stopPrice", out var sp) ? sp.GetDecimal() : (decimal?)null;
+        var qty = item.TryGetProperty("quantity", out var q) && q.ValueKind == JsonValueKind.Number
+                  ? (int)q.GetDecimal() : 0;
+        var filled = item.TryGetProperty("filledQuantity", out var fq) && fq.ValueKind == JsonValueKind.Number
+                     ? (int)fq.GetDecimal() : 0;
+        var orderType = item.TryGetProperty("orderType", out var ot) ? ot.GetString() : null;
+        var price = item.TryGetProperty("price", out var p) && p.ValueKind == JsonValueKind.Number
+                    ? p.GetDecimal() : (decimal?)null;
+        var stopPrice = item.TryGetProperty("stopPrice", out var sp) && sp.ValueKind == JsonValueKind.Number
+                        ? sp.GetDecimal() : (decimal?)null;
 
         string symbol = "";
         OrderSide side = OrderSide.Buy;
-        if (item.TryGetProperty("orderLegCollection", out var legs) && legs.GetArrayLength() > 0)
+        if (item.TryGetProperty("orderLegCollection", out var legs) &&
+            legs.ValueKind == JsonValueKind.Array && legs.GetArrayLength() > 0)
         {
             var leg = legs[0];
             symbol = leg.TryGetProperty("instrument", out var inst) &&
                      inst.TryGetProperty("symbol", out var sym) ? sym.GetString() ?? "" : "";
             var instruction = leg.TryGetProperty("instruction", out var instr) ? instr.GetString() : "BUY";
             side = instruction is "BUY" or "BUY_TO_COVER" ? OrderSide.Buy : OrderSide.Sell;
+
+            // Legs carry their own quantity when the outer strategy doesn't.
+            if (qty == 0 && leg.TryGetProperty("quantity", out var lq) && lq.ValueKind == JsonValueKind.Number)
+                qty = (int)lq.GetDecimal();
         }
 
         return new OrderState
@@ -618,20 +649,48 @@ public class SchwabBrokerClient : IBrokerClient
         };
     }
 
-    private static OrderStatus MapStatus(string? s) => s switch
+    // Schwab has ~20 order statuses. Anything that means "live at broker, still
+    // open" must map to Working / Accepted / PartiallyFilled so IsWorking=true
+    // and the order shows on the DOM ladder. Unknown drops the order silently.
+    private static OrderStatus MapStatus(string? s) => (s ?? "").ToUpperInvariant() switch
     {
-        "WORKING"            => OrderStatus.Working,
-        "ACCEPTED"           => OrderStatus.Accepted,
-        "FILLED"             => OrderStatus.Filled,
-        "PARTIALLY_FILLED"   => OrderStatus.PartiallyFilled,
-        "CANCELLED"          => OrderStatus.Cancelled,
-        "REJECTED"           => OrderStatus.BrokerRejected,
-        "CANCEL_REQUESTED"   => OrderStatus.CancelPending,
-        "REPLACE_REQUESTED"  => OrderStatus.ReplacePending,
-        "REPLACED"           => OrderStatus.Replaced,
-        "PENDING_ACTIVATION" => OrderStatus.Submitted,
-        "QUEUED"             => OrderStatus.Submitted,
-        _                    => OrderStatus.Unknown
+        // Truly active in the book
+        "WORKING"                 => OrderStatus.Working,
+        "NEW"                     => OrderStatus.Working,
+
+        // Accepted at broker; not yet routed or waiting on a condition
+        "ACCEPTED"                => OrderStatus.Accepted,
+        "PENDING_ACKNOWLEDGEMENT" => OrderStatus.Accepted,
+        "AWAITING_PARENT_ORDER"   => OrderStatus.Accepted,
+        "AWAITING_CONDITION"      => OrderStatus.Accepted,
+        "AWAITING_STOP_CONDITION" => OrderStatus.Accepted,
+        "AWAITING_MANUAL_REVIEW"  => OrderStatus.Accepted,
+        "AWAITING_UR_OUT"         => OrderStatus.Accepted,
+        "AWAITING_RELEASE_TIME"   => OrderStatus.Accepted,
+
+        // Transient submission state
+        "PENDING_ACTIVATION"      => OrderStatus.Submitted,
+        "QUEUED"                  => OrderStatus.Submitted,
+
+        // Fills
+        "FILLED"                  => OrderStatus.Filled,
+        "PARTIALLY_FILLED"        => OrderStatus.PartiallyFilled,
+
+        // Cancel / replace lifecycle
+        "CANCEL_REQUESTED"        => OrderStatus.CancelPending,
+        "PENDING_CANCEL"          => OrderStatus.CancelPending,
+        "PENDING_RECALL"          => OrderStatus.CancelPending,
+        "REPLACE_REQUESTED"       => OrderStatus.ReplacePending,
+        "PENDING_REPLACE"         => OrderStatus.ReplacePending,
+        "REPLACED"                => OrderStatus.Replaced,
+
+        // Terminal
+        "CANCELED"                => OrderStatus.Cancelled, // Schwab spells with 1 L
+        "CANCELLED"               => OrderStatus.Cancelled, // safety alias
+        "REJECTED"                => OrderStatus.BrokerRejected,
+        "EXPIRED"                 => OrderStatus.Cancelled,
+
+        _                         => OrderStatus.Unknown
     };
 
     private static OrderType MapOrderType(string? s) => s switch

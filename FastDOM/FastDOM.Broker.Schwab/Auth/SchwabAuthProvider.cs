@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using FastDOM.Broker.Interfaces;
@@ -53,11 +54,20 @@ public class SchwabAuthProvider : IAuthProvider
 
     public async Task<bool> LoginAsync(CancellationToken ct = default)
     {
-        // Java/AgentQuant bridge is the primary path. The DB2 .NET provider is kept
-        // only as a fallback for older deployments.
+        // 0. File-based override (gitignored). Used on machines that can't reach
+        //    the token DB (dev laptops away from corp network). If the override
+        //    file exists AND parses, take that path and skip DB / Python bridge.
+        //    File location: <exeDir>/schwab.token.override.json
+        //    Schema: { "appKey": "...", "appSecret": "...", "refreshToken": "...", "accountHash": "..." (optional) }
+        var overrideResult = await TryFileOverrideAsync(ct);
+        if (overrideResult.HasValue) return overrideResult.Value;
+
+        // 1. Java/AgentQuant bridge is the primary Derby path. The DB2 .NET
+        //    provider is kept only as a fallback for older deployments.
         if (await TryAgentQuantBridgeAsync(ct))
             return true;
 
+        // 2. Direct Derby / DB2 lookup.
         try
         {
             var data = await _derby.GetTokenDataAsync(ct);
@@ -68,6 +78,40 @@ public class SchwabAuthProvider : IAuthProvider
         {
             _logger.LogError(ex, "Failed to authenticate via Derby token provider");
             return false;
+        }
+    }
+
+    // Returns null when the override file is absent → other paths should run.
+    // Returns true/false when the override was used, so caller returns that result.
+    private async Task<bool?> TryFileOverrideAsync(CancellationToken ct)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "schwab.token.override.json");
+        if (!File.Exists(path)) return null;
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(path, ct);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            string Get(string name) => root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String
+                                       ? el.GetString() ?? "" : "";
+            var appKey       = Get("appKey");
+            var appSecret    = Get("appSecret");
+            var refreshToken = Get("refreshToken");
+            var accountHash  = Get("accountHash");
+            if (string.IsNullOrWhiteSpace(appKey) || string.IsNullOrWhiteSpace(refreshToken))
+            {
+                _logger.LogWarning("schwab.token.override.json present but missing appKey or refreshToken");
+                return null;
+            }
+            _logger.LogInformation("Using schwab.token.override.json for authentication (DB/bridge skipped)");
+            if (!string.IsNullOrEmpty(accountHash)) _accountHash = accountHash;
+            return await ExchangeRefreshTokenAsync(appKey, appSecret, refreshToken, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply schwab.token.override.json");
+            return null;
         }
     }
 

@@ -24,7 +24,7 @@ namespace FastDOM.Broker.Schwab.Client;
 ///
 /// Depth-of-book is only available through the streaming WebSocket, not REST.
 /// </summary>
-public class SchwabMarketDataClient : IMarketDataClient
+public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient
 {
     private readonly ILogger<SchwabMarketDataClient> _logger;
     private readonly SchwabConfig _config;
@@ -352,6 +352,101 @@ public class SchwabMarketDataClient : IMarketDataClient
             if (quote.TryGetProperty(name, out var value) && TryReadLong(value, out var parsed))
                 millis = Math.Max(millis, parsed);
         return millis > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(millis).UtcDateTime : DateTime.UtcNow;
+    }
+
+    public async Task<IReadOnlyList<MarketMover>> GetMoversAsync(
+        string indexSymbol, MoverSort sort, int frequency = 0, CancellationToken ct = default)
+    {
+        var token = await _auth.GetAccessTokenAsync(ct);
+        if (string.IsNullOrEmpty(token)) throw new InvalidOperationException("Schwab market-data authentication is unavailable.");
+
+        var sortValue = sort switch
+        {
+            MoverSort.Volume => "VOLUME",
+            MoverSort.Trades => "TRADES",
+            MoverSort.PercentChangeUp => "PERCENT_CHANGE_UP",
+            MoverSort.PercentChangeDown => "PERCENT_CHANGE_DOWN",
+            _ => "VOLUME"
+        };
+        var url = $"{_config.MarketDataApiBase}/movers/{Uri.EscapeDataString(indexSymbol)}" +
+                  $"?sort={sortValue}&frequency={Math.Clamp(frequency, 0, 60)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await _http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Schwab movers failed ({(int)response.StatusCode}): {body}");
+
+        using var doc = JsonDocument.Parse(body);
+        if (!doc.RootElement.TryGetProperty("screeners", out var screeners) || screeners.ValueKind != JsonValueKind.Array)
+            return [];
+
+        var movers = new List<MarketMover>();
+        foreach (var item in screeners.EnumerateArray())
+        {
+            var symbol = ReadString(item, "symbol");
+            if (string.IsNullOrWhiteSpace(symbol)) continue;
+            movers.Add(new MarketMover
+            {
+                Symbol = NormalizeDisplaySymbol(symbol),
+                Description = ReadString(item, "description"),
+                LastPrice = ReadDecimal(item, "lastPrice"),
+                NetChange = ReadDecimal(item, "netChange"),
+                NetPercentChange = ReadDecimal(item, "netPercentChange"),
+                Volume = ReadLong(item, "totalVolume", "volume"),
+                Trades = ReadLong(item, "trades")
+            });
+        }
+
+        await EnrichMoversAsync(movers, token, ct);
+        return movers;
+    }
+
+    private async Task EnrichMoversAsync(List<MarketMover> movers, string token, CancellationToken ct)
+    {
+        if (movers.Count == 0) return;
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"{_config.MarketDataApiBase}/quotes?symbols={Uri.EscapeDataString(string.Join(',', movers.Select(m => ToStreamerKey(m.Symbol))))}&fields=quote,fundamental,reference");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode) return;
+        var body = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+
+        foreach (var mover in movers)
+        {
+            if (!TryGetQuoteElement(doc.RootElement, mover.Symbol, ToStreamerKey(mover.Symbol), out var root)) continue;
+            if (root.TryGetProperty("quote", out var quote))
+            {
+                mover.LastPrice = ReadDecimal(quote, "lastPrice", mover.LastPrice);
+                mover.NetChange = ReadDecimal(quote, "netChange", mover.NetChange);
+                mover.NetPercentChange = ReadDecimal(quote, "netPercentChange", mover.NetPercentChange);
+                mover.Volume = ReadLong(quote, mover.Volume, "totalVolume");
+                mover.Bid = ReadDecimal(quote, "bidPrice");
+                mover.Ask = ReadDecimal(quote, "askPrice");
+                mover.Week52High = ReadDecimal(quote, "52WeekHigh");
+                mover.Week52Low = ReadDecimal(quote, "52WeekLow");
+            }
+            if (root.TryGetProperty("fundamental", out var fundamental))
+                mover.Average10DayVolume = ReadLong(fundamental, 0, "avg10DaysVolume", "average10DayVolume");
+            if (string.IsNullOrWhiteSpace(mover.Description) && root.TryGetProperty("reference", out var reference))
+                mover.Description = ReadString(reference, "description");
+        }
+    }
+
+    private static string ReadString(JsonElement source, string property) =>
+        source.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+
+    private static decimal ReadDecimal(JsonElement source, string property, decimal fallback = 0) =>
+        source.TryGetProperty(property, out var value) && TryReadDecimal(value, out var parsed) ? parsed : fallback;
+
+    private static long ReadLong(JsonElement source, params string[] properties) => ReadLong(source, 0, properties);
+
+    private static long ReadLong(JsonElement source, long fallback, params string[] properties)
+    {
+        foreach (var property in properties)
+            if (source.TryGetProperty(property, out var value) && TryReadLong(value, out var parsed)) return parsed;
+        return fallback;
     }
 
     public async Task SubscribeDepthAsync(string symbol, CancellationToken ct = default)

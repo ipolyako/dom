@@ -93,13 +93,12 @@
                         Click="OrdersButton_Click"
                         ToolTip="View and cancel open orders"/>
 
-                <!-- Hotkeys armed indicator -->
-                <Border Grid.Column="7" CornerRadius="3" Padding="6,2" Margin="4,0,0,0"
-                        Background="{Binding HotkeysArmed, Converter={StaticResource HotkeyBrushConverter}}"
-                        ToolTip="Click to toggle hotkeys" Cursor="Hand"
-                        MouseLeftButtonUp="HotkeyIndicator_Click">
-                    <TextBlock Text="{Binding HotkeysArmed, Converter={StaticResource HotkeyLabelConverter}}"
-                               FontWeight="Bold" Foreground="White" FontSize="11"/>
+                <Border Grid.Column="7" Width="68" Height="26" Margin="4,0,0,0"
+                        CornerRadius="2" Background="#FF1565C0" Cursor="Hand"
+                        ToolTip="Open Schwab gainers, losers, and most-active stocks"
+                        MouseLeftButtonUp="MoversButton_Click">
+                    <TextBlock Text="Movers" FontWeight="Bold" Foreground="White"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
 
                 <!-- Hotkey settings button -->

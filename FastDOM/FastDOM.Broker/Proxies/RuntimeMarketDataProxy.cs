@@ -9,7 +9,7 @@ namespace FastDOM.Broker.Proxies;
 /// Singleton DI entry-point for the active market data client.
 /// Swap the inner client at runtime via SwapAsync without rebuilding the DI container.
 /// </summary>
-public class RuntimeMarketDataProxy : IMarketDataClient
+public class RuntimeMarketDataProxy : IMarketDataClient, IMarketMoversClient
 {
     private readonly ILogger<RuntimeMarketDataProxy> _logger;
     private readonly Subject<Quote> _quoteSubject = new();
@@ -104,6 +104,12 @@ public class RuntimeMarketDataProxy : IMarketDataClient
         var lastConsumer = RemoveReference(_depthSubs, symbol);
         if (lastConsumer && _inner != null) await _inner.UnsubscribeDepthAsync(symbol, ct);
     }
+
+    public Task<IReadOnlyList<MarketMover>> GetMoversAsync(
+        string indexSymbol, MoverSort sort, int frequency = 0, CancellationToken ct = default)
+        => _inner is IMarketMoversClient movers
+            ? movers.GetMoversAsync(indexSymbol, sort, frequency, ct)
+            : throw new NotSupportedException("Market movers are available in Schwab mode.");
 
     private bool AddReference(Dictionary<string, int> subscriptions, string symbol)
     {

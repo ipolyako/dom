@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private Thread? _bookmapThread;
     private Dispatcher? _bookmapDispatcher;
     private BookmapWindow? _bookmapWindow;
+    private MoversWindow? _moversWindow;
 
     public MainWindow(
         MainViewModel vm,
@@ -149,8 +150,33 @@ public partial class MainWindow : Window
         }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
-    private void HotkeyIndicator_Click(object sender, MouseButtonEventArgs e)
-        => _vm.ToggleHotkeysCommand.Execute(null);
+    private void MoversButton_Click(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            if (_moversWindow is { IsLoaded: true })
+            {
+                if (_moversWindow.WindowState == WindowState.Minimized) _moversWindow.WindowState = WindowState.Normal;
+                _moversWindow.Activate();
+                return;
+            }
+
+            var window = new MoversWindow(_services.GetRequiredService<MoversViewModel>()) { Owner = this };
+            window.SymbolSelected += async symbol =>
+            {
+                _vm.SelectedSymbol = symbol;
+                await _vm.ChangeSymbolCommand.ExecuteAsync(null);
+            };
+            window.Closed += (_, _) => _moversWindow = null;
+            _moversWindow = window;
+            window.Show();
+        }
+        catch (Exception ex)
+        {
+            _vm.LastToast = $"Movers failed: {ex.Message}";
+            MessageBox.Show(this, ex.ToString(), "Movers failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
 
     private void HotkeySettings_Click(object sender, RoutedEventArgs e)
     {

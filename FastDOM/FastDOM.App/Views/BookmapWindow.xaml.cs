@@ -11,12 +11,14 @@ public partial class BookmapWindow : Window
     private readonly DepthMapViewModel _defaultViewModel;
     private readonly List<DepthMapViewModel> _viewModels = [];
 
-    public BookmapWindow(DepthMapViewModel vm, double defaultHeight, double defaultTop)
+    public BookmapWindow(DepthMapViewModel vm, double defaultHeight, double defaultTop, double defaultLeft)
     {
         InitializeComponent();
         _defaultViewModel = vm;
+        WindowStartupLocation = WindowStartupLocation.Manual;
         Height = Math.Max(MinHeight, defaultHeight);
         Top = defaultTop;
+        Left = defaultLeft;
         AddLockedTab(vm);
     }
 
@@ -69,9 +71,24 @@ public partial class BookmapWindow : Window
         symbolBox.KeyDown += async (_, args) =>
         {
             if (args.Key != Key.Enter) return;
+            var text = symbolBox.Text?.Trim().ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(text)) return;
             args.Handled = true;
-            await vm.SetSymbolAsync(symbolBox.Text);
+            await vm.SetSymbolAsync(text);
             symbolBox.Text = vm.Symbol;
+            _ = Dispatcher.InvokeAsync(() =>
+            {
+                symbolBox.Focus();
+                symbolBox.SelectAll();
+            }, System.Windows.Threading.DispatcherPriority.Input);
+        };
+        symbolBox.GotKeyboardFocus += (_, _) => symbolBox.SelectAll();
+        symbolBox.PreviewMouseLeftButtonDown += (_, args) =>
+        {
+            if (symbolBox.IsKeyboardFocusWithin) return;
+            args.Handled = true;
+            symbolBox.Focus();
+            symbolBox.SelectAll();
         };
         close.Click += (_, _) =>
         {
@@ -81,8 +98,11 @@ public partial class BookmapWindow : Window
         };
         SymbolTabs.Items.Add(tab);
         SymbolTabs.SelectedItem = tab;
-        symbolBox.Focus();
-        symbolBox.SelectAll();
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            symbolBox.Focus();
+            symbolBox.SelectAll();
+        }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
     protected override void OnClosed(EventArgs e)

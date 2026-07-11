@@ -362,13 +362,14 @@ public partial class MainWindow : Window
 
         var defaultHeight = ActualHeight;
         var defaultTop = Top;
+        var defaultLeft = Left + ActualWidth + 8;
         _bookmapThread = new Thread(() =>
         {
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
             _bookmapDispatcher = Dispatcher.CurrentDispatcher;
 
             var vm = _services.GetRequiredService<DepthMapViewModel>();
-            var window = new BookmapWindow(vm, defaultHeight, defaultTop);
+            var window = new BookmapWindow(vm, defaultHeight, defaultTop, defaultLeft);
             _bookmapWindow = window;
             window.Closed += (_, _) =>
             {

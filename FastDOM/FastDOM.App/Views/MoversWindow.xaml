@@ -3,6 +3,21 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="FastDOM — Schwab Movers" Height="720" Width="1120" MinHeight="480" MinWidth="850"
         Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource ForegroundBrush}">
+    <Window.Resources>
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="#FF202020"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Foreground" Value="#FF101010"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="#FF000000"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
     <DockPanel Margin="8">
         <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

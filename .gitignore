@@ -5,6 +5,7 @@ publish_test/
 /publish_stage_*/
 /publish_noself/
 /FastDOM/**/publish/
+/.publish_build/
 
 # publish/ is tracked — only exclude files containing credentials
 publish/broker.schwab.json

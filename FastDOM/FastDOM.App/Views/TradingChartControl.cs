@@ -20,7 +20,7 @@ public class TradingChartControl : FrameworkElement
     public event Action<OrderState>? OrderCancelRequested;
     public event Action<IReadOnlyList<OrderState>>? OrderGroupCancelRequested;
     private readonly List<(Rect CancelRect, IReadOnlyList<OrderState> Orders)> _orderCancelTargets = [];
-    public event Action<IReadOnlyList<OrderState>, decimal>? OrderMoveRequested;
+    public event Func<IReadOnlyList<OrderState>, decimal, Task>? OrderMoveRequested;
     private readonly List<(Rect PillRect, IReadOnlyList<OrderState> Orders)> _orderPillTargets = [];
     private IReadOnlyList<OrderState>? _dragOrderGroup;
     private decimal? _dragOrderPrice;
@@ -74,15 +74,26 @@ public class TradingChartControl : FrameworkElement
         var order = _orders.Where(o => o.IsWorking).OrderBy(o => Math.Abs((DisplayOrderPrice(o) ?? decimal.MaxValue) - price)).FirstOrDefault();
         if (order is not null && Math.Abs((DisplayOrderPrice(order) ?? decimal.MaxValue) - price) <= tolerance) { OrderCancelRequested?.Invoke(order); e.Handled = true; }
     }
-    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    protected override async void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         ReleaseMouseCapture(); _dragStart = null;
         if (_dragOrderGroup is { Count: > 0 } orders && _dragOrderPrice.HasValue)
         {
             var original = DisplayOrderPrice(orders[0]);
-            var target = _dragOrderPrice.Value; _dragOrderGroup = null; _dragOrderPrice = null;
-            if (original.HasValue && target != original.Value) OrderMoveRequested?.Invoke(orders, target);
-            InvalidateVisual(); e.Handled = true;
+            var target = _dragOrderPrice.Value;
+            try
+            {
+                // Keep the optimistic drag marker at the release price until
+                // the broker-backed replace workflow has updated every order.
+                if (original.HasValue && target != original.Value && OrderMoveRequested != null)
+                    await OrderMoveRequested.Invoke(orders, target);
+            }
+            finally
+            {
+                _dragOrderGroup = null; _dragOrderPrice = null;
+                InvalidateVisual();
+            }
+            e.Handled = true;
         }
     }
     protected override void OnMouseMove(MouseEventArgs e)

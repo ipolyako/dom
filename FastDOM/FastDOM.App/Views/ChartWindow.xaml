@@ -5,9 +5,15 @@
             <StackPanel Orientation="Horizontal">
                 <TextBox x:Name="SymbolBox" Text="{Binding Symbol}" Width="100" CharacterCasing="Upper" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" KeyDown="SymbolBox_KeyDown" GotKeyboardFocus="SymbolBox_GotKeyboardFocus" PreviewMouseLeftButtonDown="SymbolBox_PreviewMouseLeftButtonDown"/>
                 <ComboBox ItemsSource="{Binding Timeframes}" SelectedItem="{Binding SelectedTimeframe}" Width="110" Margin="7,0" SelectionChanged="Timeframe_Changed"/>
-                <CheckBox Content="Extended hours" IsChecked="{Binding IncludeExtendedHours}" VerticalAlignment="Center" Margin="6,0" Click="Extended_Click"/>
+                <CheckBox Content="Extended" IsChecked="{Binding IncludeExtendedHours}" VerticalAlignment="Center" Margin="6,0" Click="Extended_Click"/>
                 <Button Content="Refresh" Width="70" Margin="8,0,3,0" Click="Refresh_Click"/><Button Content="Latest" Width="70" Margin="3,0" Click="Latest_Click"/>
-                <TextBlock Text="Wheel: zoom   Drag: pan   Hover: crosshair" Foreground="{StaticResource SecondaryForeBrush}" VerticalAlignment="Center" Margin="15,0,0,0"/>
+                <CheckBox x:Name="Ema9Toggle" Content="EMA9" IsChecked="True" Margin="12,0,2,0" Click="Indicator_Click"/>
+                <CheckBox x:Name="Ema20Toggle" Content="EMA20" IsChecked="True" Margin="4,0" Click="Indicator_Click"/>
+                <CheckBox x:Name="VwapToggle" Content="VWAP" IsChecked="True" Margin="4,0" Click="Indicator_Click"/>
+                <CheckBox x:Name="LiquidityToggle" Content="Liquidity" IsChecked="False" Margin="4,0" Click="Indicator_Click" ToolTip="Show concentrated resting L2 orders as support/resistance bands"/>
+                <CheckBox x:Name="PriorToggle" Content="Prev OHLC" IsChecked="False" Margin="4,0" Click="Indicator_Click"/>
+                <CheckBox x:Name="PremarketToggle" Content="Pre Mkt H/L" IsChecked="False" Margin="4,0" Click="Indicator_Click"/>
+                <CheckBox x:Name="CamarillaToggle" Content="Camarilla" IsChecked="False" Margin="4,0" Click="Indicator_Click"/>
             </StackPanel>
         </Border>
         <Border DockPanel.Dock="Bottom" Background="#0D0D0D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,4"><TextBlock Text="{Binding Status}" Foreground="{StaticResource SecondaryForeBrush}"/></Border>

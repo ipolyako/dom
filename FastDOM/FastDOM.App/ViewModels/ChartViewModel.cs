@@ -15,13 +15,16 @@ public partial class ChartViewModel : ObservableObject, IDisposable
     private readonly IPriceHistoryClient _history;
     private readonly IMarketDataClient _marketData;
     private readonly IDisposable _quoteSubscription;
+    private readonly IDisposable _depthSubscription;
     private CancellationTokenSource? _loadCts;
+    private string? _subscribedSymbol;
 
     [ObservableProperty] private string _symbol = "SPY";
     [ObservableProperty] private ChartTimeframe _selectedTimeframe;
     [ObservableProperty] private string _status = "Ready";
     [ObservableProperty] private bool _includeExtendedHours = true;
     public IReadOnlyList<PriceCandle> Candles { get; private set; } = [];
+    public MarketDepth? CurrentDepth { get; private set; }
     public event Action? ChartChanged;
 
     public IReadOnlyList<ChartTimeframe> Timeframes { get; } =
@@ -44,6 +47,7 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         _marketData = marketData;
         _selectedTimeframe = Timeframes[1];
         _quoteSubscription = marketData.QuoteStream.Subscribe(OnQuote);
+        _depthSubscription = marketData.DepthStream.Subscribe(OnDepth);
     }
 
     public async Task LoadAsync(string? symbol = null)
@@ -55,6 +59,18 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         Status = $"Loading {Symbol} {SelectedTimeframe.Label}…";
         try
         {
+            if (!string.Equals(_subscribedSymbol, Symbol, StringComparison.OrdinalIgnoreCase))
+            {
+                if (_subscribedSymbol != null)
+                {
+                    await _marketData.UnsubscribeQuotesAsync(_subscribedSymbol, _loadCts.Token);
+                    await _marketData.UnsubscribeDepthAsync(_subscribedSymbol, _loadCts.Token);
+                }
+                CurrentDepth = null;
+                await _marketData.SubscribeQuotesAsync(Symbol, _loadCts.Token);
+                await _marketData.SubscribeDepthAsync(Symbol, _loadCts.Token);
+                _subscribedSymbol = Symbol;
+            }
             var request = SelectedTimeframe.Request with { IncludeExtendedHours = IncludeExtendedHours };
             var candles = await _history.GetPriceHistoryAsync(Symbol, request, _loadCts.Token);
             Candles = SelectedTimeframe.AggregateMinutes > 0
@@ -108,10 +124,23 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         ChartChanged?.Invoke();
     }
 
+    private void OnDepth(MarketDepth depth)
+    {
+        if (!string.Equals(depth.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)) return;
+        CurrentDepth = depth;
+        ChartChanged?.Invoke();
+    }
+
     public void Dispose()
     {
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _quoteSubscription.Dispose();
+        _depthSubscription.Dispose();
+        if (_subscribedSymbol != null)
+        {
+            _ = _marketData.UnsubscribeQuotesAsync(_subscribedSymbol);
+            _ = _marketData.UnsubscribeDepthAsync(_subscribedSymbol);
+        }
     }
 }

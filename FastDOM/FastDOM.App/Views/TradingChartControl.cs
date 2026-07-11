@@ -8,6 +8,7 @@ namespace FastDOM.App.Views;
 public class TradingChartControl : FrameworkElement
 {
     private IReadOnlyList<PriceCandle> _candles = [];
+    private MarketDepth? _depth;
     private int _visibleCount = 100;
     private int _barsBack;
     private Point? _crosshair;
@@ -16,6 +17,13 @@ public class TradingChartControl : FrameworkElement
     private readonly Typeface _font = new("Consolas");
     private static readonly Brush Up = Frozen("#26A69A"), Down = Frozen("#EF5350"), Grid = Frozen("#25313A");
     private static readonly Pen Ema9Pen = new(Frozen("#FFD54F"), 1.4), Ema20Pen = new(Frozen("#42A5F5"), 1.4), VwapPen = new(Frozen("#CE93D8"), 1.3);
+    public bool ShowEma9 { get; set; } = true;
+    public bool ShowEma20 { get; set; } = true;
+    public bool ShowVwap { get; set; } = true;
+    public bool ShowLiquidity { get; set; }
+    public bool ShowPriorSession { get; set; }
+    public bool ShowPremarket { get; set; }
+    public bool ShowCamarilla { get; set; }
 
     public void SetData(IReadOnlyList<PriceCandle> candles, bool resetView = false)
     {
@@ -23,6 +31,8 @@ public class TradingChartControl : FrameworkElement
         if (resetView) { _barsBack = 0; _visibleCount = Math.Clamp(candles.Count, 40, 120); }
         InvalidateVisual();
     }
+
+    public void SetMarketDepth(MarketDepth? depth) { _depth = depth; InvalidateVisual(); }
 
     public void ResetView() { _barsBack = 0; _visibleCount = Math.Clamp(_candles.Count, 40, 120); InvalidateVisual(); }
 
@@ -62,6 +72,8 @@ public class TradingChartControl : FrameworkElement
             var y = top + priceHeight * i / 5; dc.DrawLine(new Pen(Grid, .6), new Point(0, y), new Point(plotRight, y));
             var price = max - (max - min) * i / 5; Text(dc, price.ToString(price < 10 ? "F3" : "F2"), plotRight + 5, y - 8, Brushes.LightGray, 11);
         }
+        DrawSessionLevels(dc, min, max, plotRight, Y);
+        if (ShowLiquidity) DrawLiquidity(dc, min, max, plotRight, Y);
         var maxVol = Math.Max(1L, data.Max(x => x.Volume));
         for (var i = 0; i < data.Length; i++)
         {
@@ -71,8 +83,10 @@ public class TradingChartControl : FrameworkElement
             dc.DrawRectangle(brush, null, new Rect(x - Math.Max(1, barW * .32), y1, Math.Max(2, barW * .64), Math.Max(1, y2 - y1)));
             var vh = (double)c.Volume / maxVol * (volumeHeight - 18); dc.DrawRectangle(brush, null, new Rect(x - Math.Max(1, barW * .3), priceBottom + volumeHeight - vh, Math.Max(2, barW * .6), vh));
         }
-        DrawLine(dc, data, start, barW, Y, Ema(_candles, 9), Ema9Pen); DrawLine(dc, data, start, barW, Y, Ema(_candles, 20), Ema20Pen); DrawLine(dc, data, start, barW, Y, Vwap(_candles), VwapPen);
-        Text(dc, "EMA 9", 8, 6, Ema9Pen.Brush, 11); Text(dc, "EMA 20", 62, 6, Ema20Pen.Brush, 11); Text(dc, "VWAP", 128, 6, VwapPen.Brush, 11);
+        var legendX = 8d;
+        if (ShowEma9) { DrawLine(dc, data, start, barW, Y, Ema(_candles, 9), Ema9Pen); Text(dc, "EMA 9", legendX, 6, Ema9Pen.Brush, 11); legendX += 54; }
+        if (ShowEma20) { DrawLine(dc, data, start, barW, Y, Ema(_candles, 20), Ema20Pen); Text(dc, "EMA 20", legendX, 6, Ema20Pen.Brush, 11); legendX += 66; }
+        if (ShowVwap) { DrawLine(dc, data, start, barW, Y, Vwap(_candles), VwapPen); Text(dc, "VWAP", legendX, 6, VwapPen.Brush, 11); }
         for (var i = 0; i < data.Length; i += Math.Max(1, data.Length / 7)) Text(dc, data[i].Timestamp.ToString(data.Length > 150 ? "MM/dd" : "MM/dd HH:mm"), i * barW, ActualHeight - 19, Brushes.Gray, 10);
         if (_crosshair is { } p && p.X >= 0 && p.X < plotRight && p.Y >= top && p.Y <= priceBottom)
         {
@@ -81,6 +95,56 @@ public class TradingChartControl : FrameworkElement
             var value = max - (decimal)((p.Y - top) / priceHeight) * (max - min); dc.DrawRectangle(Frozen("#37474F"), null, new Rect(plotRight, p.Y - 10, rightAxis, 20)); Text(dc, value.ToString(value < 10 ? "F3" : "F2"), plotRight + 5, p.Y - 8, Brushes.White, 11);
             dc.DrawRectangle(Frozen("#121A20"), null, new Rect(185, 2, 520, 22)); Text(dc, $"{c.Timestamp:g}   O {c.Open:F2}  H {c.High:F2}  L {c.Low:F2}  C {c.Close:F2}  V {c.Volume:N0}", 192, 6, Brushes.White, 11);
         }
+    }
+
+    private void DrawSessionLevels(DrawingContext dc, decimal min, decimal max, double right, Func<decimal, double> y)
+    {
+        var sessions = _candles.Where(c => c.Timestamp.DayOfWeek is not DayOfWeek.Saturday and not DayOfWeek.Sunday)
+            .GroupBy(c => c.Timestamp.Date).OrderBy(g => g.Key).ToArray();
+        if (sessions.Length == 0) return;
+        var latestDate = sessions[^1].Key;
+        var priorIndex = latestDate == DateTime.Today ? sessions.Length - 2 : sessions.Length - 1;
+        if (priorIndex < 0) return;
+        var prior = sessions[priorIndex].Where(c => c.Timestamp.TimeOfDay >= TimeSpan.FromHours(8.5) && c.Timestamp.TimeOfDay < TimeSpan.FromHours(15)).OrderBy(c => c.Timestamp).ToArray();
+        if (prior.Length == 0) prior = sessions[priorIndex].OrderBy(c => c.Timestamp).ToArray();
+        if (prior.Length == 0) return;
+        var ph = prior.Max(c => c.High); var pl = prior.Min(c => c.Low); var po = prior[0].Open; var pc = prior[^1].Close;
+        if (ShowPriorSession)
+        {
+            Level(dc, po, "Y OPEN", Frozen("#90A4AE"), min, max, right, y, DashStyles.Dash);
+            Level(dc, ph, "Y HIGH", Frozen("#66BB6A"), min, max, right, y, DashStyles.Dash);
+            Level(dc, pl, "Y LOW", Frozen("#EF5350"), min, max, right, y, DashStyles.Dash);
+            Level(dc, pc, "Y CLOSE", Frozen("#FFCA28"), min, max, right, y, DashStyles.Dash);
+        }
+        if (ShowPremarket)
+        {
+            var pre = sessions[^1].Where(c => c.Timestamp.TimeOfDay >= TimeSpan.FromHours(3) && c.Timestamp.TimeOfDay < TimeSpan.FromHours(8.5)).ToArray();
+            if (pre.Length > 0) { Level(dc, pre.Max(c => c.High), "PM HIGH", Frozen("#29B6F6"), min, max, right, y, DashStyles.Dot); Level(dc, pre.Min(c => c.Low), "PM LOW", Frozen("#AB47BC"), min, max, right, y, DashStyles.Dot); }
+        }
+        if (ShowCamarilla)
+        {
+            var range = ph - pl;
+            var levels = new[] { (pc + range*1.1m/12,"R1"),(pc + range*1.1m/6,"R2"),(pc + range*1.1m/4,"R3"),(pc + range*1.1m/2,"R4"),(pc - range*1.1m/12,"S1"),(pc - range*1.1m/6,"S2"),(pc - range*1.1m/4,"S3"),(pc - range*1.1m/2,"S4") };
+            foreach (var (price,label) in levels) Level(dc, price, $"CAM {label}", label[0]=='R' ? Frozen("#FF8A65") : Frozen("#4DB6AC"), min, max, right, y, DashStyles.Dot);
+        }
+    }
+
+    private void DrawLiquidity(DrawingContext dc, decimal min, decimal max, double right, Func<decimal, double> y)
+    {
+        if (_depth is not { HasRealDepth: true }) return;
+        var levels = _depth.Bids.Select(x => (x.Price, x.BidSize, true)).Concat(_depth.Asks.Select(x => (x.Price, x.AskSize, false)))
+            .Where(x => x.Item1 >= min && x.Item1 <= max && x.Item2 > 0).OrderByDescending(x => x.Item2).Take(14).ToArray();
+        var largest = levels.Select(x => x.Item2).DefaultIfEmpty(0).Max(); if (largest <= 0) return;
+        foreach (var (price,size,bid) in levels)
+        {
+            var strength = Math.Sqrt((double)size / largest); var color = bid ? Color.FromArgb((byte)(70+150*strength), 0, 210, 150) : Color.FromArgb((byte)(70+150*strength), 255, 75, 65);
+            var brush = new SolidColorBrush(color); brush.Freeze(); var yy = y(price); dc.DrawRectangle(brush, null, new Rect(0, yy-2-strength*4, right, 4+strength*8)); Text(dc, $"L2 {size:N0}", right-72, yy-7, Brushes.White, 10);
+        }
+    }
+
+    private void Level(DrawingContext dc, decimal price, string label, Brush brush, decimal min, decimal max, double right, Func<decimal,double> y, DashStyle dash)
+    {
+        if (price < min || price > max) return; var yy = y(price); var pen = new Pen(brush, 1) { DashStyle = dash }; dc.DrawLine(pen, new Point(0,yy), new Point(right,yy)); Text(dc,label,4,yy-13,brush,10);
     }
 
     private static void DrawLine(DrawingContext dc, PriceCandle[] visible, int start, double barW, Func<decimal,double> y, decimal?[] values, Pen pen)

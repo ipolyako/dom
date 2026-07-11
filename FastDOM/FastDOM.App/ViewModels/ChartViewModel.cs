@@ -193,6 +193,12 @@ public partial class ChartViewModel : ObservableObject, IDisposable
 
     public async Task CancelAllAsync() { await _orders.CancelAllForSymbolFastAsync(AccountId, Symbol); TradeStatus = $"Cancel sent for {Symbol}"; RefreshTradingState(); ChartChanged?.Invoke(); }
     public async Task CancelOrderAsync(OrderState order) { if (order.BrokerOrderId != null) await _orders.CancelOrderAsync(AccountId, order.BrokerOrderId); RefreshTradingState(); ChartChanged?.Invoke(); }
+    public async Task CancelOrdersAsync(IReadOnlyList<OrderState> orders)
+    {
+        foreach (var order in orders)
+            if (order.BrokerOrderId != null) await _orders.CancelOrderAsync(AccountId, order.BrokerOrderId);
+        RefreshTradingState(); ChartChanged?.Invoke();
+    }
 
     private static bool IsExtendedSession()
     {

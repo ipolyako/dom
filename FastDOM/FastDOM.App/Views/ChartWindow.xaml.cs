@@ -20,6 +20,7 @@ public partial class ChartWindow : Window
         _viewModel.ChartChanged += OnChartChanged;
         Chart.PriceSelected += price => { _viewModel.StagePrice(price); UpdateChart(false); };
         Chart.OrderCancelRequested += async order => await _viewModel.CancelOrderAsync(order);
+        Chart.OrderGroupCancelRequested += async orders => await _viewModel.CancelOrdersAsync(orders);
         Loaded += async (_, _) => { _loaded = true; ApplyIndicators(); await _viewModel.LoadAsync(); UpdateChart(true); };
     }
     private void OnChartChanged()

@@ -18,6 +18,8 @@ public class TradingChartControl : FrameworkElement
     private double _renderTop, _renderPriceBottom, _renderPlotRight;
     public event Action<decimal>? PriceSelected;
     public event Action<OrderState>? OrderCancelRequested;
+    public event Action<IReadOnlyList<OrderState>>? OrderGroupCancelRequested;
+    private readonly List<(Rect CancelRect, IReadOnlyList<OrderState> Orders)> _orderCancelTargets = [];
     private int _visibleCount = 100;
     private int _barsBack;
     private Point? _crosshair;
@@ -54,6 +56,8 @@ public class TradingChartControl : FrameworkElement
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         var point = e.GetPosition(this);
+        var cancelTarget = _orderCancelTargets.FirstOrDefault(target => target.CancelRect.Contains(point));
+        if (cancelTarget.Orders is { Count: > 0 }) { OrderGroupCancelRequested?.Invoke(cancelTarget.Orders); e.Handled = true; return; }
         if (e.ClickCount >= 2 && TryPrice(point, out var price)) { PriceSelected?.Invoke(price); e.Handled = true; return; }
         CaptureMouse(); _dragStart = point; _dragBarsBack = _barsBack;
     }
@@ -80,6 +84,7 @@ public class TradingChartControl : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
+        _orderCancelTargets.Clear();
         dc.DrawRectangle(Frozen("#090D10"), null, new Rect(RenderSize));
         if (_candles.Count == 0 || ActualWidth < 150 || ActualHeight < 150) { Text(dc, "Waiting for price history", 16, 16, Brushes.Gray, 14); return; }
         var rightAxis = 78d; var top = 28d; var bottomAxis = 25d; var volumeHeight = Math.Max(65, ActualHeight * .19);
@@ -131,10 +136,19 @@ public class TradingChartControl : FrameworkElement
     {
         if (_position is { IsFlat: false }) Level(dc, _position.AverageCost, $"POS {_position.Quantity:+#;-#} @ {_position.AverageCost:F2}", Frozen("#AB47BC"), min, max, right, y, DashStyles.Solid);
         if (_stagedPrice.HasValue) Level(dc, _stagedPrice.Value, $"STAGED {_stagedPrice:F2}", Frozen("#FFFFD54F"), min, max, right, y, DashStyles.Dash);
-        foreach (var group in _orders.Where(o => o.IsWorking).GroupBy(o => (Price:o.LimitPrice ?? o.StopPrice, o.Side)).Where(g => g.Key.Price.HasValue))
+        foreach (var group in _orders.Where(o => o.IsWorking).GroupBy(o => (Price:o.LimitPrice ?? o.StopPrice, o.Side, o.OrderType)).Where(g => g.Key.Price.HasValue))
         {
-            var total=group.Sum(o=>o.QuantityRemaining); var count=group.Count(); var brush=group.Key.Side==OrderSide.Buy?Frozen("#00C853"):Frozen("#FF1744");
-            Level(dc, group.Key.Price!.Value, $"{group.Key.Side.ToString().ToUpperInvariant()} {total:N0}"+(count>1?$" ×{count}":""), brush, min, max, right, y, DashStyles.Solid);
+            var price=group.Key.Price!.Value; if(price<min||price>max) continue;
+            var orders=group.ToArray(); var total=orders.Sum(o=>o.QuantityRemaining); var count=orders.Length;
+            var buy=group.Key.Side==OrderSide.Buy; var brush=buy?Frozen("#008F68"):Frozen("#B71C35"); var lineBrush=buy?Frozen("#00A97B"):Frozen("#E53950");
+            var type=group.Key.OrderType switch { OrderType.Limit=>"LMT",OrderType.StopMarket=>"STP",OrderType.StopLimit=>"STP LMT",OrderType.MarketableLimit=>"MKT LMT",_=>group.Key.OrderType.ToString().ToUpperInvariant() };
+            var label=$"{(buy?"+":"−")}{total:N0} {type}"+(count>1?$"x{count}":""); var yy=y(price);
+            dc.DrawLine(new Pen(lineBrush,1),new Point(20,yy),new Point(right,yy));
+            var labelWidth=Measure(label,11)+15; var pillWidth=labelWidth+24; var pill=new Rect(22,yy-10,pillWidth,20);
+            dc.DrawRoundedRectangle(brush,null,pill,10,10); Text(dc,label,30,yy-7,Brushes.White,11);
+            var dividerX=pill.Right-23; dc.DrawLine(new Pen(Frozen("#66FFFFFF"),.7),new Point(dividerX,yy-7),new Point(dividerX,yy+7));
+            Text(dc,"×",dividerX+7,yy-9,Brushes.White,14);
+            _orderCancelTargets.Add((new Rect(dividerX,yy-10,23,20),orders));
         }
     }
 
@@ -197,5 +211,6 @@ public class TradingChartControl : FrameworkElement
     private static decimal?[] Ema(IReadOnlyList<PriceCandle> c, int period) { var r = new decimal?[c.Count]; if (c.Count == 0) return r; var k = 2m/(period+1); decimal e=c[0].Close; for(int i=0;i<c.Count;i++){e=i==0?c[i].Close:c[i].Close*k+e*(1-k);r[i]=e;} return r; }
     private static decimal?[] Vwap(IReadOnlyList<PriceCandle> c) { var r=new decimal?[c.Count]; decimal pv=0,v=0; DateTime? day=null; for(int i=0;i<c.Count;i++){if(day!=c[i].Timestamp.Date){pv=0;v=0;day=c[i].Timestamp.Date;} var vol=Math.Max(0,c[i].Volume);pv+=((c[i].High+c[i].Low+c[i].Close)/3)*vol;v+=vol;r[i]=v>0?pv/v:c[i].Close;}return r; }
     private void Text(DrawingContext dc,string s,double x,double y,Brush b,double size){dc.DrawText(new FormattedText(s,System.Globalization.CultureInfo.InvariantCulture,FlowDirection.LeftToRight,_font,size,b,VisualTreeHelper.GetDpi(this).PixelsPerDip),new Point(x,y));}
+    private double Measure(string s,double size)=>new FormattedText(s,System.Globalization.CultureInfo.InvariantCulture,FlowDirection.LeftToRight,_font,size,Brushes.White,VisualTreeHelper.GetDpi(this).PixelsPerDip).Width;
     private static SolidColorBrush Frozen(string hex){var b=(SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;b.Freeze();return b;}
 }

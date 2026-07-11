@@ -229,12 +229,26 @@ public partial class ChartViewModel : ObservableObject, IDisposable
     {
         var button = _hotButtons?.Buttons.FirstOrDefault(b => string.Equals(b.Id, id, StringComparison.OrdinalIgnoreCase));
         if (button == null) { TradeStatus = $"Configured action not found: {id}"; return; }
+        await ExecuteHotButtonAsync(button);
+    }
+
+    public async Task ExecuteHotButtonAsync(HotButtonConfig button)
+    {
+        if (_hotButtons == null) return;
         await RefreshPositionAsync();
         IReadOnlyDictionary<string, decimal>? variables = StagedPrice is > 0
             ? new Dictionary<string, decimal> { ["STOP"] = StagedPrice.Value }
             : null;
-        await _hotButtons!.ExecuteButtonAsync(button, Symbol, AccountId, TradeQuantity, CurrentQuote, CurrentPosition, variables);
+        await _hotButtons.ExecuteButtonAsync(button, Symbol, AccountId, TradeQuantity, CurrentQuote, CurrentPosition, variables);
         TradeStatus = $"{button.Label} completed"; RefreshTradingState(); ChartChanged?.Invoke();
+    }
+
+    public async Task ExecuteHotkeyActionAsync(string actionType)
+    {
+        if (_hotButtons == null) return;
+        await RefreshPositionAsync();
+        await _hotButtons.ExecuteActionAsync(actionType, Symbol, AccountId, TradeQuantity, CurrentQuote, CurrentPosition);
+        TradeStatus = $"Hotkey {actionType} completed"; RefreshTradingState(); ChartChanged?.Invoke();
     }
 
     private static bool IsExtendedSession()

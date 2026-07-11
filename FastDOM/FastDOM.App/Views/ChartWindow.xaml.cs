@@ -2,21 +2,27 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using FastDOM.App.Services;
 using FastDOM.App.ViewModels;
 using FastDOM.Core.Enums;
+using FastDOM.Infrastructure.Config;
 
 namespace FastDOM.App.Views;
 
 public partial class ChartWindow : Window
 {
     private readonly ChartViewModel _viewModel;
+    private readonly HotkeyService _hotkeyService;
+    private readonly ConfigManager _config;
     private readonly DispatcherTimer _renderTimer;
     private bool _loaded;
     private int _renderDirty;
 
-    public ChartWindow(ChartViewModel viewModel, string symbol, string accountId, int quantity, HotButtonsViewModel hotButtons)
+    public ChartWindow(ChartViewModel viewModel, string symbol, string accountId, int quantity,
+        HotButtonsViewModel hotButtons, HotkeyService hotkeyService, ConfigManager config)
     {
-        InitializeComponent(); DataContext = _viewModel = viewModel; _viewModel.Symbol = symbol; _viewModel.ConfigureTrading(accountId, quantity, hotButtons);
+        InitializeComponent(); DataContext = _viewModel = viewModel; _hotkeyService = hotkeyService; _config = config;
+        _viewModel.Symbol = symbol; _viewModel.ConfigureTrading(accountId, quantity, hotButtons);
         SideBox.ItemsSource = new[] { OrderSide.Buy, OrderSide.Sell }; SideBox.SelectedItem = OrderSide.Buy;
         TypeBox.ItemsSource = new[] { OrderType.Limit, OrderType.StopMarket, OrderType.StopLimit }; TypeBox.SelectedItem = OrderType.Limit;
         _viewModel.ChartChanged += OnChartChanged;
@@ -33,6 +39,39 @@ public partial class ChartWindow : Window
         };
         _renderTimer.Tick += RenderTimer_Tick;
         Loaded += async (_, _) => { _loaded = true; _renderTimer.Start(); ApplyIndicators(); await _viewModel.LoadAsync(); UpdateChart(true); };
+    }
+
+    private async void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.FocusedElement is TextBox && Keyboard.Modifiers == ModifierKeys.None)
+            return;
+
+        var gesture = HotkeyService.BuildGestureString(e);
+        var button = _config.HotButtons.FirstOrDefault(b =>
+            b.IsEnabled &&
+            !string.IsNullOrWhiteSpace(b.KeyboardShortcut) &&
+            string.Equals(b.KeyboardShortcut, gesture, StringComparison.OrdinalIgnoreCase));
+
+        try
+        {
+            if (button != null)
+            {
+                e.Handled = true;
+                await _viewModel.ExecuteHotButtonAsync(button);
+                return;
+            }
+
+            var action = _hotkeyService.ProcessKeyDown(e);
+            if (action != null)
+            {
+                e.Handled = true;
+                await _viewModel.ExecuteHotkeyActionAsync(action);
+            }
+        }
+        catch (Exception ex)
+        {
+            _viewModel.TradeStatus = $"Hotkey failed: {ex.Message}";
+        }
     }
 
     private void OnChartChanged() => Interlocked.Exchange(ref _renderDirty, 1);

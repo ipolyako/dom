@@ -18,6 +18,7 @@ public class HotkeyService : IDisposable
 
     // Tracks last-press time per action for double-press detection
     private readonly Dictionary<string, DateTime> _lastPressTimes = [];
+    private readonly object _pressGate = new();
 
     public HotkeyService(ILogger<HotkeyService> logger, HotkeyConfig config)
     {
@@ -41,16 +42,17 @@ public class HotkeyService : IDisposable
         if (binding.RequireDoublePress)
         {
             var now = DateTime.UtcNow;
-            if (_lastPressTimes.TryGetValue(binding.Id, out var last) &&
-                (now - last).TotalMilliseconds <= _config.DangerousActionDoublePressMs)
+            lock (_pressGate)
             {
-                _lastPressTimes.Remove(binding.Id);
-                _logger.LogInformation("Hotkey double-press confirmed: {Action}", binding.ActionType);
-                HotkeyFired?.Invoke(binding.ActionType);
-                return binding.ActionType;
-            }
-            else
-            {
+                if (_lastPressTimes.TryGetValue(binding.Id, out var last) &&
+                    (now - last).TotalMilliseconds <= _config.DangerousActionDoublePressMs)
+                {
+                    _lastPressTimes.Remove(binding.Id);
+                    _logger.LogInformation("Hotkey double-press confirmed: {Action}", binding.ActionType);
+                    HotkeyFired?.Invoke(binding.ActionType);
+                    return binding.ActionType;
+                }
+
                 _lastPressTimes[binding.Id] = now;
                 _logger.LogDebug("Hotkey first press (waiting for double): {Action}", binding.ActionType);
                 return null;

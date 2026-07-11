@@ -259,7 +259,9 @@ public partial class MainWindow : Window
                 request.Symbol,
                 request.AccountId,
                 request.Quantity,
-                _vm.HotButtonsViewModel);
+                _vm.HotButtonsViewModel,
+                _hotkeyService,
+                _config);
             _chartWindows.Add(window);
             window.Closed += (_, _) => _chartWindows.Remove(window);
             window.Show();

@@ -29,12 +29,11 @@ public partial class ChartViewModel : ObservableObject, IDisposable
     [ObservableProperty] private ChartTimeframe _selectedTimeframe;
     [ObservableProperty] private string _status = "Ready";
     [ObservableProperty] private bool _includeExtendedHours = true;
-    [ObservableProperty] private bool _tradingArmed;
     [ObservableProperty] private OrderSide _tradeSide = OrderSide.Buy;
     [ObservableProperty] private OrderType _tradeOrderType = OrderType.Limit;
     [ObservableProperty] private int _tradeQuantity = 100;
     [ObservableProperty] private decimal? _stagedPrice;
-    [ObservableProperty] private string _tradeStatus = "Chart trading disarmed";
+    [ObservableProperty] private string _tradeStatus = "Ready";
     public string AccountId { get; private set; } = "";
     public Quote? CurrentQuote { get; private set; }
     public Position? CurrentPosition { get; private set; }
@@ -173,7 +172,6 @@ public partial class ChartViewModel : ObservableObject, IDisposable
 
     public async Task<(bool ok, string message)> SubmitAsync(bool market = false)
     {
-        if (!TradingArmed) return (false, "Arm chart trading first");
         if (TradeQuantity <= 0) return (false, "Quantity must be positive");
         if (DateTime.Now.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return (false, "Market is closed");
         var type = market ? OrderType.Market : TradeOrderType;

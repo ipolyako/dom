@@ -2,14 +2,6 @@
         Title="FastDOM — Trading Chart" Width="1250" Height="780" MinWidth="760" MinHeight="480" Background="#090D10"
         PreviewKeyDown="Window_KeyDown">
     <Window.Resources>
-        <Style x:Key="ChartArmStyle" TargetType="ToggleButton">
-            <Setter Property="Background" Value="#2E2E2E"/><Setter Property="Foreground" Value="White"/><Setter Property="BorderBrush" Value="#606060"/><Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToggleButton">
-                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="2">
-                    <TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Border>
-            </ControlTemplate></Setter.Value></Setter>
-        </Style>
         <Style x:Key="ChartComboStyle" TargetType="ComboBox">
             <Setter Property="Background" Value="#2E2E2E"/><Setter Property="Foreground" Value="White"/><Setter Property="BorderBrush" Value="#606060"/><Setter Property="MinHeight" Value="24"/>
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
@@ -54,8 +46,7 @@
         <Border DockPanel.Dock="Top" Background="#11171B" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,4">
             <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
             <StackPanel Orientation="Horizontal">
-                <ToggleButton x:Name="ArmToggle" Style="{StaticResource ChartArmStyle}" Content="TRADE DISARMED" Width="125" Click="Arm_Click"/>
-                <TextBlock Text="Side" VerticalAlignment="Center" Margin="12,0,4,0"/><ComboBox x:Name="SideBox" Style="{StaticResource ChartComboStyle}" Width="70" SelectionChanged="TradeInput_Changed"/>
+                <TextBlock Text="Side" VerticalAlignment="Center" Margin="0,0,4,0"/><ComboBox x:Name="SideBox" Style="{StaticResource ChartComboStyle}" Width="70" SelectionChanged="TradeInput_Changed"/>
                 <TextBlock Text="Qty" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox x:Name="QuantityBox" Width="70" Text="{Binding TradeQuantity}" VerticalContentAlignment="Center" Background="#2E2E2E" Foreground="White" CaretBrush="White"/>
                 <TextBlock Text="Type" VerticalAlignment="Center" Margin="10,0,4,0"/><ComboBox x:Name="TypeBox" Style="{StaticResource ChartComboStyle}" Width="100" SelectionChanged="TradeInput_Changed"/>
                 <TextBlock Text="Price" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox Width="82" Text="{Binding StagedPrice, StringFormat=F2}" IsReadOnly="True" Background="#2E2E2E" Foreground="White"/>

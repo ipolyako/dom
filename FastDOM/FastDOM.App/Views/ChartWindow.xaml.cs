@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using FastDOM.App.ViewModels;
 using FastDOM.Core.Enums;
 
@@ -9,8 +10,9 @@ namespace FastDOM.App.Views;
 public partial class ChartWindow : Window
 {
     private readonly ChartViewModel _viewModel;
+    private readonly DispatcherTimer _renderTimer;
     private bool _loaded;
-    private int _renderQueued;
+    private int _renderDirty;
 
     public ChartWindow(ChartViewModel viewModel, string symbol, string accountId, int quantity, HotButtonsViewModel hotButtons)
     {
@@ -22,16 +24,23 @@ public partial class ChartWindow : Window
         Chart.OrderCancelRequested += async order => await _viewModel.CancelOrderAsync(order);
         Chart.OrderGroupCancelRequested += async orders => await _viewModel.CancelOrdersAsync(orders);
         Chart.OrderMoveRequested += async (orders, price) => await _viewModel.MoveOrdersAsync(orders, price);
-        Loaded += async (_, _) => { _loaded = true; ApplyIndicators(); await _viewModel.LoadAsync(); UpdateChart(true); };
-    }
-    private void OnChartChanged()
-    {
-        if (Interlocked.Exchange(ref _renderQueued, 1) != 0) return;
-        Dispatcher.BeginInvoke(() =>
+        // Market data is ingested immediately by the view model. Painting is
+        // capped at 30 FPS and runs below input priority so order clicks and
+        // hotkeys are never queued behind a burst of quote/depth redraws.
+        _renderTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interlocked.Exchange(ref _renderQueued, 0);
+            Interval = TimeSpan.FromMilliseconds(33)
+        };
+        _renderTimer.Tick += RenderTimer_Tick;
+        Loaded += async (_, _) => { _loaded = true; _renderTimer.Start(); ApplyIndicators(); await _viewModel.LoadAsync(); UpdateChart(true); };
+    }
+
+    private void OnChartChanged() => Interlocked.Exchange(ref _renderDirty, 1);
+
+    private void RenderTimer_Tick(object? sender, EventArgs e)
+    {
+        if (Interlocked.Exchange(ref _renderDirty, 0) != 0)
             UpdateChart(false);
-        }, System.Windows.Threading.DispatcherPriority.Render);
     }
     private void UpdateChart(bool reset) { Chart.SetData(_viewModel.Candles, reset); Chart.SetMarketDepth(_viewModel.CurrentDepth); Chart.SetTradingState(_viewModel.WorkingOrders, _viewModel.CurrentPosition, _viewModel.StagedPrice); }
     private async void SymbolBox_KeyDown(object sender, KeyEventArgs e)
@@ -93,5 +102,5 @@ public partial class ChartWindow : Window
     private async void RiskBuySimple_Click(object sender, RoutedEventArgs e) => await _viewModel.ExecuteConfiguredButtonAsync("risk_buy_simple");
     private async void Secure_Click(object sender, RoutedEventArgs e) => await _viewModel.ExecuteConfiguredButtonAsync("secure_position");
     private async Task ShowResultAsync(Func<Task<(bool ok, string message)>> action) { var result = await action(); if (!result.ok) MessageBox.Show(this, result.message, "Chart order", MessageBoxButton.OK, MessageBoxImage.Warning); UpdateChart(false); }
-    protected override void OnClosed(EventArgs e) { _viewModel.ChartChanged -= OnChartChanged; _viewModel.Dispose(); base.OnClosed(e); }
+    protected override void OnClosed(EventArgs e) { _renderTimer.Stop(); _renderTimer.Tick -= RenderTimer_Tick; _viewModel.ChartChanged -= OnChartChanged; _viewModel.Dispose(); base.OnClosed(e); }
 }

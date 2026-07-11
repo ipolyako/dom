@@ -10,6 +10,9 @@ namespace FastDOM.App.Views;
 public class TradingChartControl : FrameworkElement
 {
     private IReadOnlyList<PriceCandle> _candles = [];
+    private decimal?[] _ema9 = [];
+    private decimal?[] _ema20 = [];
+    private decimal?[] _vwap = [];
     private MarketDepth? _depth;
     private IReadOnlyList<OrderState> _orders = [];
     private Position? _position;
@@ -42,7 +45,15 @@ public class TradingChartControl : FrameworkElement
 
     public void SetData(IReadOnlyList<PriceCandle> candles, bool resetView = false)
     {
-        _candles = candles;
+        if (!ReferenceEquals(_candles, candles))
+        {
+            _candles = candles;
+            // Indicator series only change when candle data changes. Depth,
+            // order, crosshair, and resize paints reuse these cached values.
+            _ema9 = Ema(candles, 9);
+            _ema20 = Ema(candles, 20);
+            _vwap = Vwap(candles);
+        }
         if (resetView) { _barsBack = 0; _visibleCount = Math.Clamp(candles.Count, 40, 120); }
         InvalidateVisual();
     }
@@ -132,7 +143,8 @@ public class TradingChartControl : FrameworkElement
             var y = top + priceHeight * i / 5; dc.DrawLine(new Pen(Grid, .6), new Point(0, y), new Point(plotRight, y));
             var price = max - (max - min) * i / 5; Text(dc, price.ToString(price < 10 ? "F3" : "F2"), plotRight + 5, y - 8, Brushes.LightGray, 11);
         }
-        DrawSessionLevels(dc, min, max, plotRight, Y);
+        if (ShowPriorSession || ShowPremarket || ShowCamarilla)
+            DrawSessionLevels(dc, min, max, plotRight, Y);
         if (ShowLiquidity) DrawLiquidity(dc, min, max, plotRight, Y);
         DrawTradingLevels(dc, min, max, plotRight, Y);
         var maxVol = Math.Max(1L, data.Max(x => x.Volume));
@@ -145,9 +157,9 @@ public class TradingChartControl : FrameworkElement
             var vh = (double)c.Volume / maxVol * (volumeHeight - 18); dc.DrawRectangle(brush, null, new Rect(x - Math.Max(1, barW * .3), priceBottom + volumeHeight - vh, Math.Max(2, barW * .6), vh));
         }
         var legendX = 8d;
-        if (ShowEma9) { DrawLine(dc, data, start, barW, Y, Ema(_candles, 9), Ema9Pen); Text(dc, "EMA 9", legendX, 6, Ema9Pen.Brush, 11); legendX += 54; }
-        if (ShowEma20) { DrawLine(dc, data, start, barW, Y, Ema(_candles, 20), Ema20Pen); Text(dc, "EMA 20", legendX, 6, Ema20Pen.Brush, 11); legendX += 66; }
-        if (ShowVwap) { DrawLine(dc, data, start, barW, Y, Vwap(_candles), VwapPen); Text(dc, "VWAP", legendX, 6, VwapPen.Brush, 11); }
+        if (ShowEma9) { DrawLine(dc, data, start, barW, Y, _ema9, Ema9Pen); Text(dc, "EMA 9", legendX, 6, Ema9Pen.Brush, 11); legendX += 54; }
+        if (ShowEma20) { DrawLine(dc, data, start, barW, Y, _ema20, Ema20Pen); Text(dc, "EMA 20", legendX, 6, Ema20Pen.Brush, 11); legendX += 66; }
+        if (ShowVwap) { DrawLine(dc, data, start, barW, Y, _vwap, VwapPen); Text(dc, "VWAP", legendX, 6, VwapPen.Brush, 11); }
         for (var i = 0; i < data.Length; i += Math.Max(1, data.Length / 7)) Text(dc, data[i].Timestamp.ToString(data.Length > 150 ? "MM/dd" : "MM/dd HH:mm"), i * barW, ActualHeight - 19, Brushes.Gray, 10);
         if (_crosshair is { } p && p.X >= 0 && p.X < plotRight && p.Y >= top && p.Y <= priceBottom)
         {

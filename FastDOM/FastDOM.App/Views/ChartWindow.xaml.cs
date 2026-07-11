@@ -25,6 +25,7 @@ public partial class ChartWindow : Window
         _viewModel.Symbol = symbol; _viewModel.ConfigureTrading(accountId, quantity, hotButtons);
         SideBox.ItemsSource = new[] { OrderSide.Buy, OrderSide.Sell }; SideBox.SelectedItem = OrderSide.Buy;
         TypeBox.ItemsSource = new[] { OrderType.Limit, OrderType.StopMarket, OrderType.StopLimit }; TypeBox.SelectedItem = OrderType.Limit;
+        FitInitialWindowToContent();
         _viewModel.ChartChanged += OnChartChanged;
         Chart.PriceSelected += price => { _viewModel.StagePrice(price); UpdateChart(false); };
         Chart.OrderCancelRequested += async order => await _viewModel.CancelOrderAsync(order);
@@ -39,6 +40,23 @@ public partial class ChartWindow : Window
         };
         _renderTimer.Tick += RenderTimer_Tick;
         Loaded += async (_, _) => { _loaded = true; _renderTimer.Start(); ApplyIndicators(); await _viewModel.LoadAsync(); UpdateChart(true); };
+    }
+
+    private void FitInitialWindowToContent()
+    {
+        var unconstrained = new Size(double.PositiveInfinity, double.PositiveInfinity);
+        TopToolbar.Measure(unconstrained);
+        TradeToolbar.Measure(unconstrained);
+
+        // Include border padding, window chrome, and a small safety allowance
+        // for DPI/font rounding. Height remains proportional so the chart gets
+        // useful plotting space instead of only fitting the toolbars.
+        var naturalWidth = Math.Max(TopToolbar.DesiredSize.Width, TradeToolbar.DesiredSize.Width) + 42;
+        var workArea = SystemParameters.WorkArea;
+        var maxWidth = Math.Max(MinWidth, workArea.Width - 32);
+        var maxHeight = Math.Max(MinHeight, workArea.Height - 32);
+        Width = Math.Clamp(naturalWidth, MinWidth, maxWidth);
+        Height = Math.Clamp(Width * 0.62, Math.Min(600, maxHeight), maxHeight);
     }
 
     private async void Window_KeyDown(object sender, KeyEventArgs e)

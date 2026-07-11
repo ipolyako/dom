@@ -137,7 +137,9 @@ public class TradingChartControl : FrameworkElement
         var min = data.Min(x => x.Low); var max = data.Max(x => x.High); var pad = Math.Max((max - min) * .06m, max * .001m); min -= pad; max += pad;
         var priceHeight = priceBottom - top; double Y(decimal v) => top + (double)((max - v) / Math.Max(.0000001m, max - min)) * priceHeight;
         _renderMin=min;_renderMax=max;_renderTop=top;_renderPriceBottom=priceBottom;_renderPlotRight=plotRight;
-        var barW = plotRight / data.Length;
+        // Reserve two bar slots beyond the newest candle so price action does
+        // not run directly into the right-side price axis.
+        var barW = plotRight / (data.Length + 2d);
         for (var i = 0; i <= 5; i++)
         {
             var y = top + priceHeight * i / 5; dc.DrawLine(new Pen(Grid, .6), new Point(0, y), new Point(plotRight, y));

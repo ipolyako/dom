@@ -32,7 +32,6 @@ public partial class MainWindow : Window
     private Dispatcher? _bookmapDispatcher;
     private BookmapWindow? _bookmapWindow;
     private MoversWindow? _moversWindow;
-    private ChartWindow? _chartWindow;
 
     public MainWindow(
         MainViewModel vm,
@@ -183,16 +182,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (_chartWindow is { IsLoaded: true })
-            {
-                if (_chartWindow.WindowState == WindowState.Minimized) _chartWindow.WindowState = WindowState.Normal;
-                _chartWindow.Activate();
-                return;
-            }
             var symbol = ActiveDomSymbol();
             var window = new ChartWindow(_services.GetRequiredService<ChartViewModel>(), symbol, _vm.SelectedAccountId, _vm.ShareSize, _vm.HotButtonsViewModel) { Owner = this };
-            window.Closed += (_, _) => _chartWindow = null;
-            _chartWindow = window;
             window.Show();
         }
         catch (Exception ex)

@@ -36,7 +36,7 @@
         <Border DockPanel.Dock="Top" Background="#0D0D0D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,5">
             <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
             <StackPanel Orientation="Horizontal">
-                <TextBox x:Name="SymbolBox" Text="{Binding Symbol}" Width="100" CharacterCasing="Upper" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" KeyDown="SymbolBox_KeyDown" GotKeyboardFocus="SymbolBox_GotKeyboardFocus" PreviewMouseLeftButtonDown="SymbolBox_PreviewMouseLeftButtonDown"/>
+                <TextBox x:Name="SymbolBox" Text="{Binding Symbol, UpdateSourceTrigger=Explicit}" Width="100" CharacterCasing="Upper" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" KeyDown="SymbolBox_KeyDown" GotKeyboardFocus="SymbolBox_GotKeyboardFocus" PreviewMouseLeftButtonDown="SymbolBox_PreviewMouseLeftButtonDown"/>
                 <ComboBox Style="{StaticResource ChartComboStyle}" ItemsSource="{Binding Timeframes}" SelectedItem="{Binding SelectedTimeframe}" Width="110" Margin="7,0" SelectionChanged="Timeframe_Changed"/>
                 <CheckBox Content="Extended" IsChecked="{Binding IncludeExtendedHours}" VerticalAlignment="Center" Margin="6,0" Click="Extended_Click"/>
                 <Button Content="Refresh" Width="70" Margin="8,0,3,0" Click="Refresh_Click"/><Button Content="Latest" Width="70" Margin="3,0" Click="Latest_Click"/>

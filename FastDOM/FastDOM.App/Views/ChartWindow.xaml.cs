@@ -34,9 +34,36 @@ public partial class ChartWindow : Window
         }, System.Windows.Threading.DispatcherPriority.Render);
     }
     private void UpdateChart(bool reset) { Chart.SetData(_viewModel.Candles, reset); Chart.SetMarketDepth(_viewModel.CurrentDepth); Chart.SetTradingState(_viewModel.WorkingOrders, _viewModel.CurrentPosition, _viewModel.StagedPrice); }
-    private async void SymbolBox_KeyDown(object sender, KeyEventArgs e) { if(e.Key!=Key.Enter)return;e.Handled=true;await _viewModel.LoadAsync(SymbolBox.Text);UpdateChart(true);SymbolBox.SelectAll(); }
-    private void SymbolBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => SymbolBox.SelectAll();
-    private void SymbolBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) { if(SymbolBox.IsKeyboardFocusWithin)return;e.Handled=true;SymbolBox.Focus();SymbolBox.SelectAll(); }
+    private async void SymbolBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        var text = SymbolBox.Text?.Trim().ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(text)) return;
+        e.Handled = true;
+        await _viewModel.LoadAsync(text);
+        UpdateChart(true);
+        // Match the main symbol box: leave the loaded symbol selected so the
+        // next keystroke replaces it instead of appending to it.
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            SymbolBox.Focus();
+            SymbolBox.SelectAll();
+        }, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private void SymbolBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        => ((TextBox)sender).SelectAll();
+
+    private void SymbolBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var tb = (TextBox)sender;
+        if (!tb.IsKeyboardFocusWithin)
+        {
+            e.Handled = true;
+            tb.Focus();
+            tb.SelectAll();
+        }
+    }
     private async void Timeframe_Changed(object sender, SelectionChangedEventArgs e) { if(!_loaded)return;await _viewModel.LoadAsync();UpdateChart(true); }
     private async void Extended_Click(object sender, RoutedEventArgs e) { if(!_loaded)return;await _viewModel.LoadAsync();UpdateChart(true); }
     private async void Refresh_Click(object sender, RoutedEventArgs e) { await _viewModel.LoadAsync();UpdateChart(false); }

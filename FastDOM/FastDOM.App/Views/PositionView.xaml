@@ -12,7 +12,7 @@
             <!-- Section label -->
             <Border DockPanel.Dock="Top" Background="#FF161616" Padding="6,3"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
-                <TextBlock Text="ACCOUNT POSITIONS" FontSize="10" FontWeight="Bold"
+                <TextBlock Text="ACCOUNT POSITIONS" FontSize="12" FontWeight="Bold"
                            Foreground="{StaticResource SecondaryForeBrush}"/>
             </Border>
 
@@ -25,10 +25,10 @@
                         <ColumnDefinition Width="66"/>
                         <ColumnDefinition Width="66"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="SYM"      FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold"/>
-                    <TextBlock Grid.Column="1" Text="SHR"      FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right"/>
-                    <TextBlock Grid.Column="2" Text="OPEN P/L" FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right" Margin="4,0"/>
-                    <TextBlock Grid.Column="3" Text="DAY P/L"  FontSize="10" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right"/>
+                    <TextBlock Grid.Column="0" Text="SYM"      FontSize="12" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold"/>
+                    <TextBlock Grid.Column="1" Text="SHR"      FontSize="12" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right"/>
+                    <TextBlock Grid.Column="2" Text="OPEN P/L" FontSize="12" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right" Margin="4,0"/>
+                    <TextBlock Grid.Column="3" Text="DAY P/L"  FontSize="12" Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold" TextAlignment="Right"/>
                 </Grid>
             </Border>
 
@@ -77,24 +77,24 @@
 
                                     <TextBlock Grid.Column="0"
                                                Text="{Binding Symbol}"
-                                               FontSize="10" FontWeight="Bold" FontFamily="Consolas"
+                                               FontSize="12" FontWeight="Bold" FontFamily="Consolas"
                                                Foreground="{Binding Side, Converter={StaticResource SideBrushConverter}}"/>
 
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding Qty}"
-                                               FontSize="10" FontFamily="Consolas"
+                                               FontSize="12" FontFamily="Consolas"
                                                Foreground="{Binding Side, Converter={StaticResource SideBrushConverter}}"
                                                TextAlignment="Right"/>
 
                                     <TextBlock Grid.Column="2"
                                                Text="{Binding OpenPnL}"
-                                               FontSize="10" FontFamily="Consolas"
+                                               FontSize="12" FontFamily="Consolas"
                                                Foreground="{Binding OpenPnLValue, Converter={StaticResource PnLBrushConverter}}"
                                                TextAlignment="Right" Margin="4,0"/>
 
                                     <TextBlock Grid.Column="3"
                                                Text="{Binding DayPnL}"
-                                               FontSize="10" FontFamily="Consolas"
+                                               FontSize="12" FontFamily="Consolas"
                                                Foreground="{Binding DayPnLValue, Converter={StaticResource PnLBrushConverter}}"
                                                TextAlignment="Right"/>
                                 </Grid>

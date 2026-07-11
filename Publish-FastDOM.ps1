@@ -29,6 +29,18 @@ Get-CimInstance Win32_Process |
     Where-Object { $_.Name -eq 'FastDOM.exe' -and $_.ExecutablePath -eq $exe } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
+$exitDeadline = [DateTime]::UtcNow.AddSeconds(5)
+do {
+    $remaining = Get-CimInstance Win32_Process |
+        Where-Object { $_.Name -eq 'FastDOM.exe' -and $_.ExecutablePath -eq $exe }
+    if (-not $remaining) { break }
+    Start-Sleep -Milliseconds 100
+} while ([DateTime]::UtcNow -lt $exitDeadline)
+
+if ($remaining) {
+    throw "FastDOM did not fully exit before publishing to $destination"
+}
+
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
 $preserve = @(
     'appsettings.json', 'broker.schwab.json', 'alpaca.json', 'risk.profile.json',

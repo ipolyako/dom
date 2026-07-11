@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using FastDOM.App.Services;
 using FastDOM.App.ViewModels;
 
 namespace FastDOM.App.Views;
@@ -44,7 +45,10 @@ public partial class BookmapWindow : Window
         SymbolTabs.SelectedIndex = 0;
     }
 
-    private void AddSymbolButton_Click(object sender, RoutedEventArgs e)
+    private async void AddSymbolButton_Click(object sender, RoutedEventArgs e)
+        => await AddEditableTabAsync(null);
+
+    private async Task AddEditableTabAsync(string? initialSymbol)
     {
         var vm = _defaultViewModel.CreateEditableTab();
         _viewModels.Add(vm);
@@ -105,11 +109,37 @@ public partial class BookmapWindow : Window
         };
         SymbolTabs.Items.Add(tab);
         SymbolTabs.SelectedItem = tab;
+        if (!string.IsNullOrWhiteSpace(initialSymbol))
+        {
+            await vm.SetSymbolAsync(initialSymbol);
+            symbolBox.Text = vm.Symbol;
+        }
         _ = Dispatcher.InvokeAsync(() =>
         {
             symbolBox.Focus();
             symbolBox.SelectAll();
         }, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    public async Task RestoreLayoutAsync(L2WindowLayout layout)
+    {
+        foreach (var symbol in layout.Symbols.Where(s => !string.IsNullOrWhiteSpace(s)))
+            await AddEditableTabAsync(symbol);
+        SymbolTabs.SelectedIndex = Math.Clamp(layout.SelectedTab, 0, Math.Max(0, SymbolTabs.Items.Count - 1));
+        if (layout.Maximized) WindowState = WindowState.Maximized;
+    }
+
+    public L2WindowLayout CaptureLayout()
+    {
+        var bounds = WindowState == WindowState.Maximized ? RestoreBounds : new Rect(Left, Top, Width, Height);
+        return new L2WindowLayout
+        {
+            Left = bounds.Left, Top = bounds.Top, Width = bounds.Width, Height = bounds.Height,
+            Maximized = WindowState == WindowState.Maximized,
+            Symbols = _viewModels.Where(vm => vm.IsEditable && !string.IsNullOrWhiteSpace(vm.Symbol) && vm.Symbol != "New symbol")
+                .Select(vm => vm.Symbol).ToList(),
+            SelectedTab = SymbolTabs.SelectedIndex
+        };
     }
 
     protected override void OnClosed(EventArgs e)

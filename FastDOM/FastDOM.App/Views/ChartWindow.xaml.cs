@@ -19,13 +19,21 @@ public partial class ChartWindow : Window
     private int _renderDirty;
 
     public ChartWindow(ChartViewModel viewModel, string symbol, string accountId, int quantity,
-        HotButtonsViewModel hotButtons, HotkeyService hotkeyService, ConfigManager config)
+        HotButtonsViewModel hotButtons, HotkeyService hotkeyService, ConfigManager config,
+        ChartWindowLayout? savedLayout = null)
     {
         InitializeComponent(); DataContext = _viewModel = viewModel; _hotkeyService = hotkeyService; _config = config;
         _viewModel.Symbol = symbol; _viewModel.ConfigureTrading(accountId, quantity, hotButtons);
         SideBox.ItemsSource = new[] { OrderSide.Buy, OrderSide.Sell }; SideBox.SelectedItem = OrderSide.Buy;
         TypeBox.ItemsSource = new[] { OrderType.Limit, OrderType.StopMarket, OrderType.StopLimit }; TypeBox.SelectedItem = OrderType.Limit;
-        FitInitialWindowToContent();
+        if (savedLayout == null)
+            FitInitialWindowToContent();
+        else
+        {
+            _viewModel.SelectedTimeframe = _viewModel.Timeframes.FirstOrDefault(x => x.Label == savedLayout.Timeframe) ?? _viewModel.SelectedTimeframe;
+            _viewModel.IncludeExtendedHours = savedLayout.ExtendedHours;
+            ApplyWindowLayout(savedLayout);
+        }
         _viewModel.ChartChanged += OnChartChanged;
         Chart.PriceSelected += price => { _viewModel.StagePrice(price); UpdateChart(false); };
         Chart.OrderCancelRequested += async order => await _viewModel.CancelOrderAsync(order);
@@ -40,6 +48,33 @@ public partial class ChartWindow : Window
         };
         _renderTimer.Tick += RenderTimer_Tick;
         Loaded += async (_, _) => { _loaded = true; _renderTimer.Start(); ApplyIndicators(); await _viewModel.LoadAsync(); UpdateChart(true); };
+    }
+
+    public ChartWindowLayout CaptureLayout()
+    {
+        var bounds = WindowState == WindowState.Maximized ? RestoreBounds : new Rect(Left, Top, Width, Height);
+        return new ChartWindowLayout
+        {
+            Left = bounds.Left, Top = bounds.Top, Width = bounds.Width, Height = bounds.Height,
+            Maximized = WindowState == WindowState.Maximized,
+            Symbol = _viewModel.Symbol, Timeframe = _viewModel.SelectedTimeframe.Label,
+            ExtendedHours = _viewModel.IncludeExtendedHours, AccountId = _viewModel.AccountId,
+            Quantity = _viewModel.TradeQuantity
+        };
+    }
+
+    private void ApplyWindowLayout(WorkspaceWindowLayout layout)
+    {
+        var virtualLeft = SystemParameters.VirtualScreenLeft;
+        var virtualTop = SystemParameters.VirtualScreenTop;
+        var virtualRight = virtualLeft + SystemParameters.VirtualScreenWidth;
+        var virtualBottom = virtualTop + SystemParameters.VirtualScreenHeight;
+        Width = Math.Clamp(layout.Width, MinWidth, Math.Max(MinWidth, SystemParameters.VirtualScreenWidth));
+        Height = Math.Clamp(layout.Height, MinHeight, Math.Max(MinHeight, SystemParameters.VirtualScreenHeight));
+        Left = Math.Clamp(layout.Left, virtualLeft, Math.Max(virtualLeft, virtualRight - Width));
+        Top = Math.Clamp(layout.Top, virtualTop, Math.Max(virtualTop, virtualBottom - Height));
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        if (layout.Maximized) WindowState = WindowState.Maximized;
     }
 
     private void FitInitialWindowToContent()

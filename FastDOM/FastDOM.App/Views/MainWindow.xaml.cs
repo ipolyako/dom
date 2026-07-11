@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -32,12 +33,15 @@ public partial class MainWindow : Window
     private Dispatcher? _bookmapDispatcher;
     private BookmapWindow? _bookmapWindow;
     private readonly object _chartThreadGate = new();
-    private readonly Queue<(string Symbol, string AccountId, int Quantity)> _pendingCharts = [];
+    private readonly Queue<ChartWindowLayout> _pendingCharts = [];
     private readonly HashSet<ChartWindow> _chartWindows = [];
     private Thread? _chartThread;
     private Dispatcher? _chartDispatcher;
     private bool _chartShutdownRequested;
     private MoversWindow? _moversWindow;
+    private readonly WorkspaceLayoutStore _layoutStore;
+    private readonly WorkspaceLayout _startupLayout;
+    private bool _workspaceRestored;
 
     public MainWindow(
         MainViewModel vm,
@@ -60,6 +64,9 @@ public partial class MainWindow : Window
         _domService = domService;
         _services = services;
         _accountCache = accountCache;
+        _layoutStore = new WorkspaceLayoutStore(config);
+        _startupLayout = _layoutStore.Load();
+        ApplyWindowLayout(this, _startupLayout.Main);
 
         // Auto-scroll activity log — defer to Background priority so the ItemsControl
         // finishes processing CollectionChanged before ScrollIntoView triggers layout.
@@ -88,6 +95,7 @@ public partial class MainWindow : Window
     protected override async void OnContentRendered(EventArgs e)
     {
         base.OnContentRendered(e);
+        RestoreWorkspace();
         await _vm.ConnectCommand.ExecuteAsync(null);
     }
 
@@ -157,6 +165,9 @@ public partial class MainWindow : Window
     }
 
     private void MoversButton_Click(object sender, RoutedEventArgs e)
+        => OpenMovers(null);
+
+    private void OpenMovers(WorkspaceWindowLayout? savedLayout)
     {
         try
         {
@@ -167,7 +178,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var window = new MoversWindow(_services.GetRequiredService<MoversViewModel>()) { Owner = this };
+            // Managed explicitly so its placement is still available when the
+            // main window captures the workspace during shutdown.
+            var window = new MoversWindow(_services.GetRequiredService<MoversViewModel>());
+            if (savedLayout != null) ApplyWindowLayout(window, savedLayout);
             window.SymbolSelected += async symbol =>
             {
                 _vm.SelectedSymbol = symbol;
@@ -185,12 +199,19 @@ public partial class MainWindow : Window
     }
 
     private void ChartButton_Click(object sender, RoutedEventArgs e)
+        => QueueChart(new ChartWindowLayout
+        {
+            Symbol = ActiveDomSymbol(), AccountId = _vm.SelectedAccountId,
+            Quantity = _vm.ShareSize
+        });
+
+    private void QueueChart(ChartWindowLayout layout)
     {
         try
         {
             lock (_chartThreadGate)
             {
-                _pendingCharts.Enqueue((ActiveDomSymbol(), _vm.SelectedAccountId, _vm.ShareSize));
+                _pendingCharts.Enqueue(layout);
                 if (_chartDispatcher != null)
                 {
                     _chartDispatcher.BeginInvoke(OpenPendingChartWindows, DispatcherPriority.Normal);
@@ -247,7 +268,7 @@ public partial class MainWindow : Window
     {
         while (true)
         {
-            (string Symbol, string AccountId, int Quantity) request;
+            ChartWindowLayout request;
             lock (_chartThreadGate)
             {
                 if (_chartShutdownRequested || _pendingCharts.Count == 0) return;
@@ -261,7 +282,8 @@ public partial class MainWindow : Window
                 request.Quantity,
                 _vm.HotButtonsViewModel,
                 _hotkeyService,
-                _config);
+                _config,
+                request.Width > 0 && request.Height > 0 ? request : null);
             _chartWindows.Add(window);
             window.Closed += (_, _) => _chartWindows.Remove(window);
             window.Show();
@@ -464,6 +486,9 @@ public partial class MainWindow : Window
     }
 
     private void BookmapButton_Click(object sender, RoutedEventArgs e)
+        => OpenBookmap(null);
+
+    private void OpenBookmap(L2WindowLayout? savedLayout)
     {
         if (_bookmapDispatcher != null && _bookmapWindow != null)
         {
@@ -486,6 +511,7 @@ public partial class MainWindow : Window
 
             var vm = _services.GetRequiredService<DepthMapViewModel>();
             var window = new BookmapWindow(vm, defaultHeight, defaultTop, defaultLeft);
+            if (savedLayout != null) ApplyWindowLayout(window, savedLayout);
             _bookmapWindow = window;
             window.Closed += (_, _) =>
             {
@@ -494,6 +520,7 @@ public partial class MainWindow : Window
                 Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
             };
             window.Show();
+            if (savedLayout != null) _ = window.RestoreLayoutAsync(savedLayout);
 
             Dispatcher.Run();
         })
@@ -514,12 +541,98 @@ public partial class MainWindow : Window
         dlg.Show();
     }
 
+    private void RestoreWorkspace()
+    {
+        if (_workspaceRestored) return;
+        _workspaceRestored = true;
+
+        if (_startupLayout.Movers != null) OpenMovers(_startupLayout.Movers);
+        if (_startupLayout.L2Heat != null) OpenBookmap(_startupLayout.L2Heat);
+        foreach (var chart in _startupLayout.Charts)
+        {
+            if (string.IsNullOrWhiteSpace(chart.AccountId)) chart.AccountId = _vm.SelectedAccountId;
+            if (chart.Quantity <= 0) chart.Quantity = _vm.ShareSize;
+            QueueChart(chart);
+        }
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (!e.Cancel) SaveWorkspaceLayout();
+        base.OnClosing(e);
+    }
+
+    private void SaveWorkspaceLayout()
+    {
+        try
+        {
+            var layout = new WorkspaceLayout { Main = CaptureWindowLayout(this) };
+            if (_moversWindow is { IsLoaded: true })
+                layout.Movers = CaptureWindowLayout(_moversWindow);
+
+            var chartDispatcher = _chartDispatcher;
+            if (chartDispatcher != null)
+            {
+                try
+                {
+                    layout.Charts = chartDispatcher.Invoke(() =>
+                        _chartWindows.Where(w => w.IsLoaded).Select(w => w.CaptureLayout()).ToList());
+                }
+                catch (TaskCanceledException) { }
+                catch (InvalidOperationException) { }
+            }
+
+            var bookmapDispatcher = _bookmapDispatcher;
+            if (bookmapDispatcher != null && _bookmapWindow != null)
+            {
+                try { layout.L2Heat = bookmapDispatcher.Invoke(() => _bookmapWindow?.CaptureLayout()); }
+                catch (TaskCanceledException) { }
+                catch (InvalidOperationException) { }
+            }
+
+            _layoutStore.Save(layout);
+        }
+        catch (Exception ex)
+        {
+            _vm.LastToast = $"Workspace layout save failed: {ex.Message}";
+        }
+    }
+
+    private static WorkspaceWindowLayout CaptureWindowLayout(Window window)
+    {
+        var bounds = window.WindowState == WindowState.Maximized
+            ? window.RestoreBounds
+            : new Rect(window.Left, window.Top, window.Width, window.Height);
+        return new WorkspaceWindowLayout
+        {
+            Left = bounds.Left, Top = bounds.Top, Width = bounds.Width, Height = bounds.Height,
+            Maximized = window.WindowState == WindowState.Maximized
+        };
+    }
+
+    private static void ApplyWindowLayout(Window window, WorkspaceWindowLayout layout)
+    {
+        if (layout.Width < window.MinWidth || layout.Height < window.MinHeight) return;
+        var virtualLeft = SystemParameters.VirtualScreenLeft;
+        var virtualTop = SystemParameters.VirtualScreenTop;
+        var virtualRight = virtualLeft + SystemParameters.VirtualScreenWidth;
+        var virtualBottom = virtualTop + SystemParameters.VirtualScreenHeight;
+        window.Width = Math.Clamp(layout.Width, window.MinWidth, Math.Max(window.MinWidth, SystemParameters.VirtualScreenWidth));
+        window.Height = Math.Clamp(layout.Height, window.MinHeight, Math.Max(window.MinHeight, SystemParameters.VirtualScreenHeight));
+        window.Left = Math.Clamp(layout.Left, virtualLeft, Math.Max(virtualLeft, virtualRight - window.Width));
+        window.Top = Math.Clamp(layout.Top, virtualTop, Math.Max(virtualTop, virtualBottom - window.Height));
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        if (layout.Maximized) window.WindowState = WindowState.Maximized;
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         CloseChartWindows();
         CloseBookmapWindow();
+        _moversWindow?.Close();
         _config.SaveAll();
         base.OnClosed(e);
+        if (!Dispatcher.HasShutdownStarted) Application.Current.Shutdown();
     }
 
     private void CloseChartWindows()
@@ -554,12 +667,20 @@ public partial class MainWindow : Window
     private void CloseBookmapWindow()
     {
         var dispatcher = _bookmapDispatcher;
-        if (dispatcher == null) return;
-
-        dispatcher.BeginInvoke(() =>
+        var thread = _bookmapThread;
+        if (dispatcher != null)
         {
-            _bookmapWindow?.Close();
-            Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
-        });
+            try
+            {
+                dispatcher.Invoke(() =>
+                {
+                    _bookmapWindow?.Close();
+                    Dispatcher.CurrentDispatcher.InvokeShutdown();
+                });
+            }
+            catch (TaskCanceledException) { }
+            catch (InvalidOperationException) { }
+        }
+        if (thread is { IsAlive: true }) thread.Join(TimeSpan.FromSeconds(2));
     }
 }

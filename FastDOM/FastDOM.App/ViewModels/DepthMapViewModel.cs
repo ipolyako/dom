@@ -3,6 +3,8 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FastDOM.App.Services;
+using FastDOM.MarketData.Interfaces;
+using FastDOM.MarketData.Models;
 
 namespace FastDOM.App.ViewModels;
 
@@ -35,7 +37,16 @@ public partial class DepthMapViewModel : ObservableObject, IDisposable
 {
     private static readonly int[] BinTickSteps = [1, 2, 3, 5, 10, 20, 50, 100, 200, 500];
     private readonly DomService _domService;
+    private readonly IMarketDataClient _marketData;
     private readonly Dispatcher _dispatcher;
+    private readonly bool _isEditable;
+    private readonly IDisposable? _quoteSubscription;
+    private readonly IDisposable? _depthSubscription;
+    private readonly SemaphoreSlim _symbolGate = new(1, 1);
+    private Quote? _currentQuote;
+    private MarketDepth? _currentDepth;
+    private string? _ownedSymbol;
+    private bool _disposed;
     private bool _updateQueued;
     private int _binIndex;
     private double _viewportHeight = 650;
@@ -48,16 +59,86 @@ public partial class DepthMapViewModel : ObservableObject, IDisposable
     [ObservableProperty] private double _rowHeight = 8;
     [ObservableProperty] private int _largestOrder;
     [ObservableProperty] private int _visibleLiquidity;
+    public bool IsEditable => _isEditable;
 
     public ObservableCollection<DepthHeatRow> Rows { get; } = [];
 
-    public DepthMapViewModel(DomService domService)
+    public DepthMapViewModel(DomService domService, IMarketDataClient marketData)
+        : this(domService, marketData, false)
+    {
+    }
+
+    private DepthMapViewModel(DomService domService, IMarketDataClient marketData, bool isEditable)
     {
         _domService = domService;
+        _marketData = marketData;
+        _isEditable = isEditable;
         _dispatcher = Dispatcher.CurrentDispatcher;
-        _domService.DomUpdated += OnDomUpdated;
+        if (isEditable)
+        {
+            _quoteSubscription = marketData.QuoteStream.Subscribe(OnQuote);
+            _depthSubscription = marketData.DepthStream.Subscribe(OnDepth);
+            Symbol = "New symbol";
+            Status = "Enter a symbol in the tab above";
+        }
+        else
+        {
+            _domService.DomUpdated += OnDomUpdated;
+        }
         UpdateLabels();
-        Rebuild();
+        if (!isEditable) Rebuild();
+    }
+
+    public DepthMapViewModel CreateEditableTab() => new(_domService, _marketData, true);
+
+    public async Task SetSymbolAsync(string value)
+    {
+        if (!_isEditable || _disposed) return;
+        var next = SymbolClassifier.NormalizeDisplaySymbol(value);
+        if (string.IsNullOrWhiteSpace(next)) return;
+
+        await _symbolGate.WaitAsync();
+        try
+        {
+            if (string.Equals(next, _ownedSymbol, StringComparison.OrdinalIgnoreCase)) return;
+            var previous = _ownedSymbol;
+            _ownedSymbol = null;
+            if (previous != null)
+            {
+                await _marketData.UnsubscribeDepthAsync(previous);
+                await _marketData.UnsubscribeQuotesAsync(previous);
+            }
+
+            _currentQuote = null;
+            _currentDepth = null;
+            Symbol = next;
+            Rows.Clear();
+            Status = $"{next} · requesting quote and L2 depth";
+            await _marketData.SubscribeQuotesAsync(next);
+            await _marketData.SubscribeDepthAsync(next);
+            _ownedSymbol = next;
+            var snapshot = await _marketData.GetSnapshotAsync(next);
+            if (snapshot != null) _currentQuote = snapshot;
+            QueueRebuild();
+        }
+        finally
+        {
+            _symbolGate.Release();
+        }
+    }
+
+    private void OnQuote(Quote quote)
+    {
+        if (!string.Equals(quote.Symbol, _ownedSymbol, StringComparison.OrdinalIgnoreCase)) return;
+        _currentQuote = quote;
+        QueueRebuild();
+    }
+
+    private void OnDepth(MarketDepth depth)
+    {
+        if (!string.Equals(depth.Symbol, _ownedSymbol, StringComparison.OrdinalIgnoreCase)) return;
+        _currentDepth = depth;
+        QueueRebuild();
     }
 
     public void ZoomIn()
@@ -110,8 +191,11 @@ public partial class DepthMapViewModel : ObservableObject, IDisposable
     }
 
     private void OnDomUpdated()
+        => QueueRebuild();
+
+    private void QueueRebuild()
     {
-        if (_updateQueued) return;
+        if (_updateQueued || _disposed) return;
         _updateQueued = true;
         _dispatcher.BeginInvoke(new Action(() =>
         {
@@ -122,9 +206,9 @@ public partial class DepthMapViewModel : ObservableObject, IDisposable
 
     internal void Rebuild()
     {
-        var depth = _domService.CurrentDepth;
-        var quote = _domService.CurrentQuote;
-        Symbol = _domService.SymbolInfo.Symbol;
+        var depth = _isEditable ? _currentDepth : _domService.CurrentDepth;
+        var quote = _isEditable ? _currentQuote : _domService.CurrentQuote;
+        if (!_isEditable) Symbol = _domService.SymbolInfo.Symbol;
         if (depth == null || !depth.HasRealDepth || depth.Bids.Count + depth.Asks.Count == 0)
         {
             Rows.Clear();
@@ -134,7 +218,8 @@ public partial class DepthMapViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var tick = _domService.SymbolInfo.TickSize > 0 ? _domService.SymbolInfo.TickSize : 0.01m;
+        var symbolTick = _isEditable ? 0.01m : _domService.SymbolInfo.TickSize;
+        var tick = symbolTick > 0 ? symbolTick : 0.01m;
         var binTicks = BinTickSteps[_binIndex];
         var binSize = tick * binTicks;
         var anchor = quote?.Mid > 0 ? quote.Mid
@@ -279,5 +364,20 @@ public partial class DepthMapViewModel : ObservableObject, IDisposable
         return brush;
     }
 
-    public void Dispose() => _domService.DomUpdated -= OnDomUpdated;
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (!_isEditable) _domService.DomUpdated -= OnDomUpdated;
+        _quoteSubscription?.Dispose();
+        _depthSubscription?.Dispose();
+        var symbol = _ownedSymbol;
+        _ownedSymbol = null;
+        if (symbol != null)
+        {
+            _ = _marketData.UnsubscribeDepthAsync(symbol);
+            _ = _marketData.UnsubscribeQuotesAsync(symbol);
+        }
+        _symbolGate.Dispose();
+    }
 }

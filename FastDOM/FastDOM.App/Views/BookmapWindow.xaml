@@ -3,11 +3,25 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:FastDOM.App.Views"
         Title="FastDOM L2 Heat"
-        Height="820"
         Width="760"
         MinHeight="420"
         MinWidth="560"
         Background="{StaticResource BackgroundBrush}"
         Foreground="{StaticResource ForegroundBrush}">
-    <views:DepthMapView/>
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom"
+                BorderBrush="#333333"
+                BorderThickness="0,1,0,0"
+                Padding="8">
+            <Button x:Name="AddSymbolButton"
+                    Content="+  Add Symbol"
+                    Width="130"
+                    Height="30"
+                    HorizontalAlignment="Left"
+                    Click="AddSymbolButton_Click"/>
+        </Border>
+        <TabControl x:Name="SymbolTabs"
+                    Background="{StaticResource BackgroundBrush}"
+                    Foreground="{StaticResource ForegroundBrush}"/>
+    </DockPanel>
 </Window>

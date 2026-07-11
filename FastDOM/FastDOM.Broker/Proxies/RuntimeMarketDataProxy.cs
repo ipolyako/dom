@@ -23,8 +23,9 @@ public class RuntimeMarketDataProxy : IMarketDataClient
     private IDisposable? _accountActivitySub;
     private IDisposable? _connSub;
     private IMarketDataClient? _inner;
-    private readonly List<string> _quoteSubs = [];
-    private readonly List<string> _depthSubs = [];
+    private readonly object _subscriptionLock = new();
+    private readonly Dictionary<string, int> _quoteSubs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _depthSubs = new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsConnected => _inner?.IsConnected ?? false;
     public bool SupportsLevelTwo => _inner?.SupportsLevelTwo ?? false;
@@ -58,9 +59,16 @@ public class RuntimeMarketDataProxy : IMarketDataClient
         _logger.LogInformation("MarketData swapped to {Type}", newClient.GetType().Name);
 
         // Re-subscribe to symbols that were active before the swap
-        foreach (var s in _quoteSubs.ToList())
+        string[] quoteSymbols;
+        string[] depthSymbols;
+        lock (_subscriptionLock)
+        {
+            quoteSymbols = _quoteSubs.Keys.ToArray();
+            depthSymbols = _depthSubs.Keys.ToArray();
+        }
+        foreach (var s in quoteSymbols)
             await newClient.SubscribeQuotesAsync(s, ct);
-        foreach (var s in _depthSubs.ToList())
+        foreach (var s in depthSymbols)
             await newClient.SubscribeDepthAsync(s, ct);
     }
 
@@ -75,26 +83,53 @@ public class RuntimeMarketDataProxy : IMarketDataClient
 
     public async Task SubscribeQuotesAsync(string symbol, CancellationToken ct = default)
     {
-        if (!_quoteSubs.Contains(symbol)) _quoteSubs.Add(symbol);
-        if (_inner != null) await _inner.SubscribeQuotesAsync(symbol, ct);
+        var firstConsumer = AddReference(_quoteSubs, symbol);
+        if (firstConsumer && _inner != null) await _inner.SubscribeQuotesAsync(symbol, ct);
     }
 
     public async Task UnsubscribeQuotesAsync(string symbol, CancellationToken ct = default)
     {
-        _quoteSubs.Remove(symbol);
-        if (_inner != null) await _inner.UnsubscribeQuotesAsync(symbol, ct);
+        var lastConsumer = RemoveReference(_quoteSubs, symbol);
+        if (lastConsumer && _inner != null) await _inner.UnsubscribeQuotesAsync(symbol, ct);
     }
 
     public async Task SubscribeDepthAsync(string symbol, CancellationToken ct = default)
     {
-        if (!_depthSubs.Contains(symbol)) _depthSubs.Add(symbol);
-        if (_inner != null) await _inner.SubscribeDepthAsync(symbol, ct);
+        var firstConsumer = AddReference(_depthSubs, symbol);
+        if (firstConsumer && _inner != null) await _inner.SubscribeDepthAsync(symbol, ct);
     }
 
     public async Task UnsubscribeDepthAsync(string symbol, CancellationToken ct = default)
     {
-        _depthSubs.Remove(symbol);
-        if (_inner != null) await _inner.UnsubscribeDepthAsync(symbol, ct);
+        var lastConsumer = RemoveReference(_depthSubs, symbol);
+        if (lastConsumer && _inner != null) await _inner.UnsubscribeDepthAsync(symbol, ct);
+    }
+
+    private bool AddReference(Dictionary<string, int> subscriptions, string symbol)
+    {
+        symbol = symbol.Trim().ToUpperInvariant();
+        lock (_subscriptionLock)
+        {
+            var current = subscriptions.GetValueOrDefault(symbol);
+            subscriptions[symbol] = current + 1;
+            return current == 0;
+        }
+    }
+
+    private bool RemoveReference(Dictionary<string, int> subscriptions, string symbol)
+    {
+        symbol = symbol.Trim().ToUpperInvariant();
+        lock (_subscriptionLock)
+        {
+            if (!subscriptions.TryGetValue(symbol, out var current)) return false;
+            if (current > 1)
+            {
+                subscriptions[symbol] = current - 1;
+                return false;
+            }
+            subscriptions.Remove(symbol);
+            return true;
+        }
     }
 
     public async ValueTask DisposeAsync()

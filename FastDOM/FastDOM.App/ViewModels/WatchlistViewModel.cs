@@ -53,6 +53,7 @@ public partial class WatchlistViewModel : ObservableObject
     private readonly string _savePath;
     private IDisposable? _quoteSub;
     private readonly DispatcherTimer _refreshTimer;
+    private readonly HashSet<string> _subscribedSymbols = new(StringComparer.OrdinalIgnoreCase);
     private bool _refreshInFlight;
 
     public ObservableCollection<WatchlistItem> Items { get; } = [];
@@ -92,7 +93,8 @@ public partial class WatchlistViewModel : ObservableObject
 
         try
         {
-            await _marketData.SubscribeQuotesAsync(sym);
+            if (_subscribedSymbols.Add(sym))
+                await _marketData.SubscribeQuotesAsync(sym);
             var snap = await _marketData.GetSnapshotAsync(sym);
             if (snap != null)
                 Application.Current.Dispatcher.Invoke(() =>
@@ -109,7 +111,8 @@ public partial class WatchlistViewModel : ObservableObject
     {
         Items.Remove(item);
         Save();
-        _ = _marketData.UnsubscribeQuotesAsync(item.Symbol);
+        if (_subscribedSymbols.Remove(item.Symbol))
+            _ = _marketData.UnsubscribeQuotesAsync(item.Symbol);
     }
 
     [RelayCommand]
@@ -133,7 +136,8 @@ public partial class WatchlistViewModel : ObservableObject
         {
             try
             {
-                await _marketData.SubscribeQuotesAsync(item.Symbol);
+                if (_subscribedSymbols.Add(item.Symbol))
+                    await _marketData.SubscribeQuotesAsync(item.Symbol);
                 await RefreshSnapshotAsync(item);
             }
             catch (Exception ex) { _logger.LogDebug(ex, "Resubscribe failed: {Sym}", item.Symbol); }

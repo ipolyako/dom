@@ -24,7 +24,7 @@ namespace FastDOM.Broker.Schwab.Client;
 ///
 /// Depth-of-book is only available through the streaming WebSocket, not REST.
 /// </summary>
-public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient
+public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IPriceHistoryClient
 {
     private readonly ILogger<SchwabMarketDataClient> _logger;
     private readonly SchwabConfig _config;
@@ -352,6 +352,41 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient
             if (quote.TryGetProperty(name, out var value) && TryReadLong(value, out var parsed))
                 millis = Math.Max(millis, parsed);
         return millis > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(millis).UtcDateTime : DateTime.UtcNow;
+    }
+
+    public async Task<IReadOnlyList<PriceCandle>> GetPriceHistoryAsync(
+        string symbol, PriceHistoryRequest request, CancellationToken ct = default)
+    {
+        var token = await _auth.GetAccessTokenAsync(ct);
+        if (string.IsNullOrEmpty(token)) throw new InvalidOperationException("Schwab market-data authentication is unavailable.");
+        var url = $"{_config.MarketDataApiBase}/pricehistory" +
+                  $"?symbol={Uri.EscapeDataString(ToStreamerKey(NormalizeDisplaySymbol(symbol)))}" +
+                  $"&periodType={Uri.EscapeDataString(request.PeriodType)}&period={request.Period}" +
+                  $"&frequencyType={Uri.EscapeDataString(request.FrequencyType)}&frequency={request.Frequency}" +
+                  $"&needExtendedHoursData={request.IncludeExtendedHours.ToString().ToLowerInvariant()}&needPreviousClose=true";
+        using var message = new HttpRequestMessage(HttpMethod.Get, url);
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await _http.SendAsync(message, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Schwab price history failed ({(int)response.StatusCode}): {body}");
+        using var doc = JsonDocument.Parse(body);
+        if (!doc.RootElement.TryGetProperty("candles", out var candles) || candles.ValueKind != JsonValueKind.Array) return [];
+        var result = new List<PriceCandle>();
+        foreach (var candle in candles.EnumerateArray())
+        {
+            if (!candle.TryGetProperty("datetime", out var timestamp) || !TryReadLong(timestamp, out var millis)) continue;
+            result.Add(new PriceCandle
+            {
+                Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(millis).LocalDateTime,
+                Open = ReadDecimal(candle, "open"),
+                High = ReadDecimal(candle, "high"),
+                Low = ReadDecimal(candle, "low"),
+                Close = ReadDecimal(candle, "close"),
+                Volume = ReadLong(candle, "volume")
+            });
+        }
+        return result.OrderBy(c => c.Timestamp).ToArray();
     }
 
     public async Task<IReadOnlyList<MarketMover>> GetMoversAsync(

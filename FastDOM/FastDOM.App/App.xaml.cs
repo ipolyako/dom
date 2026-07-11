@@ -117,6 +117,7 @@ public partial class App : Application
         services.AddSingleton<IBrokerClient>(sp => sp.GetRequiredService<RuntimeBrokerProxy>());
         services.AddSingleton<IMarketDataClient>(sp => sp.GetRequiredService<RuntimeMarketDataProxy>());
         services.AddSingleton<IMarketMoversClient>(sp => sp.GetRequiredService<RuntimeMarketDataProxy>());
+        services.AddSingleton<IPriceHistoryClient>(sp => sp.GetRequiredService<RuntimeMarketDataProxy>());
         services.AddSingleton<BrokerFactory>();
 
 
@@ -139,6 +140,7 @@ public partial class App : Application
         services.AddTransient<OrderTicketViewModel>();
         services.AddTransient<DepthMapViewModel>();
         services.AddTransient<MoversViewModel>();
+        services.AddTransient<ChartViewModel>();
         services.AddSingleton<WatchlistViewModel>();
 
         // Options

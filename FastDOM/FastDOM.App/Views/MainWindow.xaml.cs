@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private Dispatcher? _bookmapDispatcher;
     private BookmapWindow? _bookmapWindow;
     private MoversWindow? _moversWindow;
+    private ChartWindow? _chartWindow;
 
     public MainWindow(
         MainViewModel vm,
@@ -175,6 +176,29 @@ public partial class MainWindow : Window
         {
             _vm.LastToast = $"Movers failed: {ex.Message}";
             MessageBox.Show(this, ex.ToString(), "Movers failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ChartButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_chartWindow is { IsLoaded: true })
+            {
+                if (_chartWindow.WindowState == WindowState.Minimized) _chartWindow.WindowState = WindowState.Normal;
+                _chartWindow.Activate();
+                return;
+            }
+            var symbol = ActiveDomSymbol();
+            var window = new ChartWindow(_services.GetRequiredService<ChartViewModel>(), symbol) { Owner = this };
+            window.Closed += (_, _) => _chartWindow = null;
+            _chartWindow = window;
+            window.Show();
+        }
+        catch (Exception ex)
+        {
+            _vm.LastToast = $"Chart failed: {ex.Message}";
+            MessageBox.Show(this, ex.ToString(), "Chart failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

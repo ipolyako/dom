@@ -88,23 +88,26 @@
                         Click="BookmapButton_Click"
                         ToolTip="Open significant L2 liquidity heat map in a separate window"/>
 
-                <Button Grid.Column="6" Content="Orders" Width="80" Margin="4,0"
+                <Button Grid.Column="6" Content="Chart" Width="70" Margin="4,0"
+                        Click="ChartButton_Click" ToolTip="Open professional candlestick chart"/>
+
+                <Button Grid.Column="7" Content="Orders" Width="80" Margin="4,0"
                         Background="{Binding HasOpenOrders, Converter={StaticResource OrdersBrushConverter}}"
                         Click="OrdersButton_Click"
                         ToolTip="View and cancel open orders"/>
 
-                <Button Grid.Column="7" Content="Movers" Width="80" Margin="4,0"
+                <Button Grid.Column="8" Content="Movers" Width="80" Margin="4,0"
                         Click="MoversButton_Click"
                         ToolTip="Open Schwab gainers, losers, and most-active stocks"/>
 
                 <!-- Hotkey settings button -->
-                <Button Grid.Column="8" Content="⚙" Width="26" Height="26" Margin="2,0,0,0"
+                <Button Grid.Column="9" Content="⚙" Width="26" Height="26" Margin="2,0,0,0"
                         FontSize="14" Padding="0"
                         ToolTip="Configure hotkeys"
                         Click="HotkeySettings_Click"/>
 
                 <!-- Options chain button -->
-                <Button Grid.Column="9" Content="OPT" Width="40" Height="26" Margin="2,0,0,0"
+                <Button Grid.Column="10" Content="OPT" Width="40" Height="26" Margin="2,0,0,0"
                         FontSize="11" FontWeight="Bold" Padding="0"
                         ToolTip="Open options chain"
                         Click="OpenOptionsChain_Click"/>

@@ -2,6 +2,8 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using FastDOM.MarketData.Models;
+using FastDOM.Core.Models;
+using FastDOM.Core.Enums;
 
 namespace FastDOM.App.Views;
 
@@ -9,6 +11,13 @@ public class TradingChartControl : FrameworkElement
 {
     private IReadOnlyList<PriceCandle> _candles = [];
     private MarketDepth? _depth;
+    private IReadOnlyList<OrderState> _orders = [];
+    private Position? _position;
+    private decimal? _stagedPrice;
+    private decimal _renderMin, _renderMax;
+    private double _renderTop, _renderPriceBottom, _renderPlotRight;
+    public event Action<decimal>? PriceSelected;
+    public event Action<OrderState>? OrderCancelRequested;
     private int _visibleCount = 100;
     private int _barsBack;
     private Point? _crosshair;
@@ -33,6 +42,7 @@ public class TradingChartControl : FrameworkElement
     }
 
     public void SetMarketDepth(MarketDepth? depth) { _depth = depth; InvalidateVisual(); }
+    public void SetTradingState(IReadOnlyList<OrderState> orders, Position? position, decimal? stagedPrice) { _orders = orders; _position = position; _stagedPrice = stagedPrice; InvalidateVisual(); }
 
     public void ResetView() { _barsBack = 0; _visibleCount = Math.Clamp(_candles.Count, 40, 120); InvalidateVisual(); }
 
@@ -41,7 +51,19 @@ public class TradingChartControl : FrameworkElement
         _visibleCount = Math.Clamp(_visibleCount + (e.Delta < 0 ? 15 : -15), 20, Math.Max(20, Math.Min(500, _candles.Count)));
         InvalidateVisual(); e.Handled = true;
     }
-    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e) { CaptureMouse(); _dragStart = e.GetPosition(this); _dragBarsBack = _barsBack; }
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        var point = e.GetPosition(this);
+        if (e.ClickCount >= 2 && TryPrice(point, out var price)) { PriceSelected?.Invoke(price); e.Handled = true; return; }
+        CaptureMouse(); _dragStart = point; _dragBarsBack = _barsBack;
+    }
+    protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
+    {
+        var point = e.GetPosition(this); if (!TryPrice(point, out var price)) return;
+        var tolerance = (_renderMax - _renderMin) / (decimal)Math.Max(20, ActualHeight / 8);
+        var order = _orders.Where(o => o.IsWorking).OrderBy(o => Math.Abs((o.LimitPrice ?? o.StopPrice ?? decimal.MaxValue) - price)).FirstOrDefault();
+        if (order is not null && Math.Abs((order.LimitPrice ?? order.StopPrice ?? decimal.MaxValue) - price) <= tolerance) { OrderCancelRequested?.Invoke(order); e.Handled = true; }
+    }
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e) { ReleaseMouseCapture(); _dragStart = null; }
     protected override void OnMouseMove(MouseEventArgs e)
     {
@@ -66,6 +88,7 @@ public class TradingChartControl : FrameworkElement
         var data = _candles.Skip(start).Take(end - start).ToArray(); if (data.Length == 0) return;
         var min = data.Min(x => x.Low); var max = data.Max(x => x.High); var pad = Math.Max((max - min) * .06m, max * .001m); min -= pad; max += pad;
         var priceHeight = priceBottom - top; double Y(decimal v) => top + (double)((max - v) / Math.Max(.0000001m, max - min)) * priceHeight;
+        _renderMin=min;_renderMax=max;_renderTop=top;_renderPriceBottom=priceBottom;_renderPlotRight=plotRight;
         var barW = plotRight / data.Length;
         for (var i = 0; i <= 5; i++)
         {
@@ -74,6 +97,7 @@ public class TradingChartControl : FrameworkElement
         }
         DrawSessionLevels(dc, min, max, plotRight, Y);
         if (ShowLiquidity) DrawLiquidity(dc, min, max, plotRight, Y);
+        DrawTradingLevels(dc, min, max, plotRight, Y);
         var maxVol = Math.Max(1L, data.Max(x => x.Volume));
         for (var i = 0; i < data.Length; i++)
         {
@@ -94,6 +118,23 @@ public class TradingChartControl : FrameworkElement
             var dash = new Pen(Frozen("#78909C"), .8) { DashStyle = DashStyles.Dash }; dc.DrawLine(dash, new Point(x, top), new Point(x, ActualHeight - bottomAxis)); dc.DrawLine(dash, new Point(0, p.Y), new Point(plotRight, p.Y));
             var value = max - (decimal)((p.Y - top) / priceHeight) * (max - min); dc.DrawRectangle(Frozen("#37474F"), null, new Rect(plotRight, p.Y - 10, rightAxis, 20)); Text(dc, value.ToString(value < 10 ? "F3" : "F2"), plotRight + 5, p.Y - 8, Brushes.White, 11);
             dc.DrawRectangle(Frozen("#121A20"), null, new Rect(185, 2, 520, 22)); Text(dc, $"{c.Timestamp:g}   O {c.Open:F2}  H {c.High:F2}  L {c.Low:F2}  C {c.Close:F2}  V {c.Volume:N0}", 192, 6, Brushes.White, 11);
+        }
+    }
+
+    private bool TryPrice(Point point, out decimal price)
+    {
+        price = 0; if (_renderMax <= _renderMin || point.X < 0 || point.X > _renderPlotRight || point.Y < _renderTop || point.Y > _renderPriceBottom) return false;
+        price = _renderMax - (decimal)((point.Y-_renderTop)/Math.Max(1,_renderPriceBottom-_renderTop))*(_renderMax-_renderMin); return true;
+    }
+
+    private void DrawTradingLevels(DrawingContext dc, decimal min, decimal max, double right, Func<decimal,double> y)
+    {
+        if (_position is { IsFlat: false }) Level(dc, _position.AverageCost, $"POS {_position.Quantity:+#;-#} @ {_position.AverageCost:F2}", Frozen("#AB47BC"), min, max, right, y, DashStyles.Solid);
+        if (_stagedPrice.HasValue) Level(dc, _stagedPrice.Value, $"STAGED {_stagedPrice:F2}", Frozen("#FFFFD54F"), min, max, right, y, DashStyles.Dash);
+        foreach (var group in _orders.Where(o => o.IsWorking).GroupBy(o => (Price:o.LimitPrice ?? o.StopPrice, o.Side)).Where(g => g.Key.Price.HasValue))
+        {
+            var total=group.Sum(o=>o.QuantityRemaining); var count=group.Count(); var brush=group.Key.Side==OrderSide.Buy?Frozen("#00C853"):Frozen("#FF1744");
+            Level(dc, group.Key.Price!.Value, $"{group.Key.Side.ToString().ToUpperInvariant()} {total:N0}"+(count>1?$" ×{count}":""), brush, min, max, right, y, DashStyles.Solid);
         }
     }
 

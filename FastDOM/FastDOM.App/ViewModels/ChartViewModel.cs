@@ -2,6 +2,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using FastDOM.App.Services;
 using FastDOM.MarketData.Interfaces;
 using FastDOM.MarketData.Models;
+using FastDOM.Core.Enums;
+using FastDOM.Core.Models;
 
 namespace FastDOM.App.ViewModels;
 
@@ -14,6 +16,8 @@ public partial class ChartViewModel : ObservableObject, IDisposable
 {
     private readonly IPriceHistoryClient _history;
     private readonly IMarketDataClient _marketData;
+    private readonly OrderService _orders;
+    private readonly AccountSummaryCache _accounts;
     private readonly IDisposable _quoteSubscription;
     private readonly IDisposable _depthSubscription;
     private CancellationTokenSource? _loadCts;
@@ -23,6 +27,16 @@ public partial class ChartViewModel : ObservableObject, IDisposable
     [ObservableProperty] private ChartTimeframe _selectedTimeframe;
     [ObservableProperty] private string _status = "Ready";
     [ObservableProperty] private bool _includeExtendedHours = true;
+    [ObservableProperty] private bool _tradingArmed;
+    [ObservableProperty] private OrderSide _tradeSide = OrderSide.Buy;
+    [ObservableProperty] private OrderType _tradeOrderType = OrderType.Limit;
+    [ObservableProperty] private int _tradeQuantity = 100;
+    [ObservableProperty] private decimal? _stagedPrice;
+    [ObservableProperty] private string _tradeStatus = "Chart trading disarmed";
+    public string AccountId { get; private set; } = "";
+    public Quote? CurrentQuote { get; private set; }
+    public Position? CurrentPosition { get; private set; }
+    public IReadOnlyList<OrderState> WorkingOrders { get; private set; } = [];
     public IReadOnlyList<PriceCandle> Candles { get; private set; } = [];
     public MarketDepth? CurrentDepth { get; private set; }
     public event Action? ChartChanged;
@@ -41,13 +55,23 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         new("1D · 5Y", new("year", 5, "daily", 1))
     ];
 
-    public ChartViewModel(IPriceHistoryClient history, IMarketDataClient marketData)
+    public ChartViewModel(IPriceHistoryClient history, IMarketDataClient marketData, OrderService orders, AccountSummaryCache accounts)
     {
         _history = history;
         _marketData = marketData;
+        _orders = orders;
+        _accounts = accounts;
         _selectedTimeframe = Timeframes[1];
         _quoteSubscription = marketData.QuoteStream.Subscribe(OnQuote);
         _depthSubscription = marketData.DepthStream.Subscribe(OnDepth);
+        _orders.OrderStateChanged += OnOrderStateChanged;
+    }
+
+    public void ConfigureTrading(string accountId, int quantity)
+    {
+        AccountId = accountId;
+        TradeQuantity = Math.Max(1, quantity);
+        RefreshTradingState();
     }
 
     public async Task LoadAsync(string? symbol = null)
@@ -79,6 +103,7 @@ public partial class ChartViewModel : ObservableObject, IDisposable
             Status = Candles.Count == 0 ? $"No history returned for {Symbol}" :
                 $"{Symbol} · {SelectedTimeframe.Label} · {Candles.Count:N0} candles · {Candles[^1].Timestamp:g}";
             ChartChanged?.Invoke();
+            await RefreshPositionAsync();
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Status = ex.Message; }
@@ -114,6 +139,7 @@ public partial class ChartViewModel : ObservableObject, IDisposable
     private void OnQuote(Quote quote)
     {
         if (!string.Equals(quote.Symbol, Symbol, StringComparison.OrdinalIgnoreCase) || Candles.Count == 0 || quote.Last <= 0) return;
+        CurrentQuote = quote;
         var list = Candles.ToList();
         var last = list[^1];
         last.Close = quote.Last;
@@ -122,6 +148,56 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         if (quote.Volume > 0) last.Volume = quote.Volume;
         Candles = list;
         ChartChanged?.Invoke();
+    }
+
+    private void OnOrderStateChanged(OrderState _) { RefreshTradingState(); ChartChanged?.Invoke(); }
+
+    private void RefreshTradingState() => WorkingOrders = _orders.ActiveOrders.Values
+        .Where(o => o.IsWorking && string.Equals(o.AccountId, AccountId, StringComparison.OrdinalIgnoreCase) && string.Equals(o.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))
+        .DistinctBy(o => o.BrokerOrderId ?? o.ClientOrderId).ToArray();
+
+    private async Task RefreshPositionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(AccountId)) return;
+        var account = await _accounts.GetAsync(AccountId);
+        account.Positions.TryGetValue(Symbol, out var position);
+        CurrentPosition = position;
+        RefreshTradingState();
+        ChartChanged?.Invoke();
+    }
+
+    public void StagePrice(decimal price) { StagedPrice = Math.Round(price, 2); TradeStatus = $"Staged {TradeSide} {TradeQuantity:N0} @ {StagedPrice:F2}"; }
+
+    public async Task<(bool ok, string message)> SubmitAsync(bool market = false)
+    {
+        if (!TradingArmed) return (false, "Arm chart trading first");
+        if (TradeQuantity <= 0) return (false, "Quantity must be positive");
+        if (DateTime.Now.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return (false, "Market is closed");
+        var type = market ? OrderType.Market : TradeOrderType;
+        if (!market && !StagedPrice.HasValue) return (false, "Double-click the chart to stage a price");
+        var extended = IsExtendedSession();
+        if (extended && type != OrderType.Limit) return (false, "Extended-hours chart orders must be Limit orders");
+        var request = new OrderRequest
+        {
+            AccountId = AccountId, Symbol = Symbol, AssetType = SymbolClassifier.AssetTypeFor(Symbol), Side = TradeSide,
+            Quantity = TradeQuantity, OrderType = type,
+            LimitPrice = type is OrderType.Limit or OrderType.StopLimit or OrderType.MarketableLimit ? StagedPrice : null,
+            StopPrice = type is OrderType.StopMarket or OrderType.StopLimit ? StagedPrice : null,
+            TimeInForce = TimeInForce.Day, ExtendedHours = extended, Source = OrderSource.DomClick
+        };
+        var account = await _accounts.GetAsync(AccountId);
+        var result = await _orders.SubmitOrderAsync(request, account, CurrentQuote);
+        TradeStatus = result.success ? $"{TradeSide} {TradeQuantity:N0} {Symbol} sent" : $"Rejected: {result.message}";
+        RefreshTradingState(); ChartChanged?.Invoke(); return result;
+    }
+
+    public async Task CancelAllAsync() { await _orders.CancelAllForSymbolFastAsync(AccountId, Symbol); TradeStatus = $"Cancel sent for {Symbol}"; RefreshTradingState(); ChartChanged?.Invoke(); }
+    public async Task CancelOrderAsync(OrderState order) { if (order.BrokerOrderId != null) await _orders.CancelOrderAsync(AccountId, order.BrokerOrderId); RefreshTradingState(); ChartChanged?.Invoke(); }
+
+    private static bool IsExtendedSession()
+    {
+        var now = DateTime.Now;
+        return now.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday) && (now.TimeOfDay < TimeSpan.FromHours(8.5) || now.TimeOfDay >= TimeSpan.FromHours(15));
     }
 
     private void OnDepth(MarketDepth depth)
@@ -137,6 +213,7 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         _loadCts?.Dispose();
         _quoteSubscription.Dispose();
         _depthSubscription.Dispose();
+        _orders.OrderStateChanged -= OnOrderStateChanged;
         if (_subscribedSymbol != null)
         {
             _ = _marketData.UnsubscribeQuotesAsync(_subscribedSymbol);

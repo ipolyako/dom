@@ -16,6 +16,20 @@
                 <CheckBox x:Name="CamarillaToggle" Content="Camarilla" IsChecked="False" Margin="4,0" Click="Indicator_Click"/>
             </StackPanel>
         </Border>
+        <Border DockPanel.Dock="Top" Background="#11171B" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+            <StackPanel Orientation="Horizontal">
+                <ToggleButton x:Name="ArmToggle" Content="TRADE DISARMED" Width="125" Background="#37474F" Click="Arm_Click"/>
+                <TextBlock Text="Side" VerticalAlignment="Center" Margin="12,0,4,0"/><ComboBox x:Name="SideBox" Width="70" SelectionChanged="TradeInput_Changed"/>
+                <TextBlock Text="Qty" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox x:Name="QuantityBox" Width="70" Text="{Binding TradeQuantity}" VerticalContentAlignment="Center"/>
+                <TextBlock Text="Type" VerticalAlignment="Center" Margin="10,0,4,0"/><ComboBox x:Name="TypeBox" Width="100" SelectionChanged="TradeInput_Changed"/>
+                <TextBlock Text="Price" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox Width="82" Text="{Binding StagedPrice, StringFormat=F2}" IsReadOnly="True" Foreground="#FFFFD54F"/>
+                <Button Content="PLACE" Width="80" Margin="8,0,3,0" Background="#1565C0" Click="Place_Click"/>
+                <Button Content="BUY MKT" Width="80" Margin="3,0" Background="#1B5E20" Click="BuyMarket_Click"/>
+                <Button Content="SELL MKT" Width="80" Margin="3,0" Background="#B71C1C" Click="SellMarket_Click"/>
+                <Button Content="CANCEL SYM" Width="100" Margin="10,0,3,0" Click="CancelAll_Click"/>
+                <TextBlock Text="{Binding TradeStatus}" Foreground="{StaticResource SecondaryForeBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+            </StackPanel>
+        </Border>
         <Border DockPanel.Dock="Bottom" Background="#0D0D0D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,4"><TextBlock Text="{Binding Status}" Foreground="{StaticResource SecondaryForeBrush}"/></Border>
         <local:TradingChartControl x:Name="Chart" xmlns:local="clr-namespace:FastDOM.App.Views" Focusable="True"/>
     </DockPanel>

@@ -125,7 +125,10 @@ public partial class DomView : UserControl
         {
             ViewModel.DragTargetSide = side;
             ViewModel.DragTargetPrice = fromPrice;
-            ViewModel.DragPreviewSummary = string.Join("+", _dragOrders.Select(o => o.QuantityRemaining));
+            var total = _dragOrders.Sum(o => Math.Max(0, o.QuantityRemaining));
+            ViewModel.DragPreviewSummary = _dragOrders.Length == 1
+                ? total.ToString("N0")
+                : $"{total:N0} ×{_dragOrders.Length}";
         }
     }
 

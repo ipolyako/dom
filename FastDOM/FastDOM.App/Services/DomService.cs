@@ -268,12 +268,18 @@ public partial class DomLadderRow : ObservableObject
     public bool HasSellOrders => SellOrders.Count > 0;
 
     public string BuyOrderSummary => BuyOrders.Count > 0
-        ? string.Join("+", BuyOrders.Select(o => o.QuantityRemaining))
+        ? FormatOrderSummary(BuyOrders)
         : "";
 
     public string SellOrderSummary => SellOrders.Count > 0
-        ? string.Join("+", SellOrders.Select(o => o.QuantityRemaining))
+        ? FormatOrderSummary(SellOrders)
         : "";
+
+    private static string FormatOrderSummary(IReadOnlyCollection<OrderState> orders)
+    {
+        var total = orders.Sum(order => Math.Max(0, order.QuantityRemaining));
+        return orders.Count == 1 ? total.ToString("N0") : $"{total:N0} ×{orders.Count}";
+    }
 
     public DomLadderRow()
     {

@@ -34,11 +34,13 @@ public partial class BookmapWindow : Window
             MinWidth = 80
         };
         header.SetBinding(TextBlock.TextProperty, new Binding(nameof(DepthMapViewModel.Symbol)) { Source = vm });
-        SymbolTabs.Items.Add(new TabItem
+        var tab = new TabItem
         {
             Header = header,
             Content = new DepthMapView { DataContext = vm }
-        });
+        };
+        header.PreviewMouseLeftButtonDown += (_, _) => SymbolTabs.SelectedItem = tab;
+        SymbolTabs.Items.Add(tab);
         SymbolTabs.SelectedIndex = 0;
     }
 
@@ -82,9 +84,14 @@ public partial class BookmapWindow : Window
                 symbolBox.SelectAll();
             }, System.Windows.Threading.DispatcherPriority.Input);
         };
-        symbolBox.GotKeyboardFocus += (_, _) => symbolBox.SelectAll();
+        symbolBox.GotKeyboardFocus += (_, _) =>
+        {
+            SymbolTabs.SelectedItem = tab;
+            symbolBox.SelectAll();
+        };
         symbolBox.PreviewMouseLeftButtonDown += (_, args) =>
         {
+            SymbolTabs.SelectedItem = tab;
             if (symbolBox.IsKeyboardFocusWithin) return;
             args.Handled = true;
             symbolBox.Focus();

@@ -190,7 +190,7 @@ public partial class MainWindow : Window
                 return;
             }
             var symbol = ActiveDomSymbol();
-            var window = new ChartWindow(_services.GetRequiredService<ChartViewModel>(), symbol, _vm.SelectedAccountId, _vm.ShareSize) { Owner = this };
+            var window = new ChartWindow(_services.GetRequiredService<ChartViewModel>(), symbol, _vm.SelectedAccountId, _vm.ShareSize, _vm.HotButtonsViewModel) { Owner = this };
             window.Closed += (_, _) => _chartWindow = null;
             _chartWindow = window;
             window.Show();

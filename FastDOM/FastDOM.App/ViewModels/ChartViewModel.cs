@@ -18,6 +18,7 @@ public partial class ChartViewModel : ObservableObject, IDisposable
     private readonly IMarketDataClient _marketData;
     private readonly OrderService _orders;
     private readonly AccountSummaryCache _accounts;
+    private HotButtonsViewModel? _hotButtons;
     private readonly IDisposable _quoteSubscription;
     private readonly IDisposable _depthSubscription;
     private CancellationTokenSource? _loadCts;
@@ -67,10 +68,11 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         _orders.OrderStateChanged += OnOrderStateChanged;
     }
 
-    public void ConfigureTrading(string accountId, int quantity)
+    public void ConfigureTrading(string accountId, int quantity, HotButtonsViewModel hotButtons)
     {
         AccountId = accountId;
         TradeQuantity = Math.Max(1, quantity);
+        _hotButtons = hotButtons;
         RefreshTradingState();
     }
 
@@ -198,6 +200,37 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         foreach (var order in orders)
             if (order.BrokerOrderId != null) await _orders.CancelOrderAsync(AccountId, order.BrokerOrderId);
         RefreshTradingState(); ChartChanged?.Invoke();
+    }
+
+    public async Task MoveOrdersAsync(IReadOnlyList<OrderState> orders, decimal newPrice)
+    {
+        foreach (var order in orders)
+        {
+            if (order.BrokerOrderId == null) continue;
+            var isStop = order.OrderType is OrderType.StopMarket or OrderType.StopLimit;
+            var oldStop = order.StopPrice;
+            var replacement = new OrderReplace
+            {
+                OriginalClientOrderId = order.ClientOrderId, BrokerOrderId = order.BrokerOrderId,
+                NewStopPrice = isStop ? newPrice : null,
+                NewLimitPrice = order.OrderType == OrderType.StopLimit && oldStop.HasValue && order.LimitPrice.HasValue
+                    ? order.LimitPrice + (newPrice - oldStop.Value)
+                    : isStop ? null : newPrice,
+                Source = OrderSource.DomClick
+            };
+            var result = await _orders.ReplaceOrderAsync(AccountId, replacement);
+            if (!result.success) { TradeStatus = $"Move rejected: {result.message}"; break; }
+        }
+        RefreshTradingState(); ChartChanged?.Invoke();
+    }
+
+    public async Task ExecuteConfiguredButtonAsync(string id)
+    {
+        var button = _hotButtons?.Buttons.FirstOrDefault(b => string.Equals(b.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (button == null) { TradeStatus = $"Configured action not found: {id}"; return; }
+        await RefreshPositionAsync();
+        await _hotButtons!.ExecuteButtonAsync(button, Symbol, AccountId, TradeQuantity, CurrentQuote, CurrentPosition);
+        TradeStatus = $"{button.Label} completed"; RefreshTradingState(); ChartChanged?.Invoke();
     }
 
     private static bool IsExtendedSession()

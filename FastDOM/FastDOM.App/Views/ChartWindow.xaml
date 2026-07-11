@@ -59,6 +59,9 @@
                 <Button Content="BUY MKT" Width="80" Margin="3,0" Background="#1B5E20" Click="BuyMarket_Click"/>
                 <Button Content="SELL MKT" Width="80" Margin="3,0" Background="#B71C1C" Click="SellMarket_Click"/>
                 <Button Content="CANCEL SYM" Width="100" Margin="10,0,3,0" Click="CancelAll_Click"/>
+                <Button Content="Risk Buy" Width="82" Margin="8,0,2,0" Background="#1565C0" Click="RiskBuy_Click"/>
+                <Button Content="Risk Simple" Width="92" Margin="2,0" Background="#1976D2" Click="RiskBuySimple_Click"/>
+                <Button Content="Secure" Width="78" Margin="2,0" Background="#00838F" Click="Secure_Click"/>
                 <TextBlock Text="{Binding TradeStatus}" Foreground="{StaticResource SecondaryForeBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
             </StackPanel>
         </Border>

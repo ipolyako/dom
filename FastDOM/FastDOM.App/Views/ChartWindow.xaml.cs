@@ -12,15 +12,16 @@ public partial class ChartWindow : Window
     private bool _loaded;
     private int _renderQueued;
 
-    public ChartWindow(ChartViewModel viewModel, string symbol, string accountId, int quantity)
+    public ChartWindow(ChartViewModel viewModel, string symbol, string accountId, int quantity, HotButtonsViewModel hotButtons)
     {
-        InitializeComponent(); DataContext = _viewModel = viewModel; _viewModel.Symbol = symbol; _viewModel.ConfigureTrading(accountId, quantity);
+        InitializeComponent(); DataContext = _viewModel = viewModel; _viewModel.Symbol = symbol; _viewModel.ConfigureTrading(accountId, quantity, hotButtons);
         SideBox.ItemsSource = new[] { OrderSide.Buy, OrderSide.Sell }; SideBox.SelectedItem = OrderSide.Buy;
         TypeBox.ItemsSource = new[] { OrderType.Limit, OrderType.StopMarket, OrderType.StopLimit }; TypeBox.SelectedItem = OrderType.Limit;
         _viewModel.ChartChanged += OnChartChanged;
         Chart.PriceSelected += price => { _viewModel.StagePrice(price); UpdateChart(false); };
         Chart.OrderCancelRequested += async order => await _viewModel.CancelOrderAsync(order);
         Chart.OrderGroupCancelRequested += async orders => await _viewModel.CancelOrdersAsync(orders);
+        Chart.OrderMoveRequested += async (orders, price) => await _viewModel.MoveOrdersAsync(orders, price);
         Loaded += async (_, _) => { _loaded = true; ApplyIndicators(); await _viewModel.LoadAsync(); UpdateChart(true); };
     }
     private void OnChartChanged()
@@ -61,6 +62,9 @@ public partial class ChartWindow : Window
     private async void BuyMarket_Click(object sender, RoutedEventArgs e) { SideBox.SelectedItem = OrderSide.Buy; _viewModel.TradeSide = OrderSide.Buy; await ShowResultAsync(() => _viewModel.SubmitAsync(true)); }
     private async void SellMarket_Click(object sender, RoutedEventArgs e) { SideBox.SelectedItem = OrderSide.Sell; _viewModel.TradeSide = OrderSide.Sell; await ShowResultAsync(() => _viewModel.SubmitAsync(true)); }
     private async void CancelAll_Click(object sender, RoutedEventArgs e) { await _viewModel.CancelAllAsync(); UpdateChart(false); }
+    private async void RiskBuy_Click(object sender, RoutedEventArgs e) => await _viewModel.ExecuteConfiguredButtonAsync("risk_buy_5t");
+    private async void RiskBuySimple_Click(object sender, RoutedEventArgs e) => await _viewModel.ExecuteConfiguredButtonAsync("risk_buy_simple");
+    private async void Secure_Click(object sender, RoutedEventArgs e) => await _viewModel.ExecuteConfiguredButtonAsync("secure_position");
     private async Task ShowResultAsync(Func<Task<(bool ok, string message)>> action) { var result = await action(); if (!result.ok) MessageBox.Show(this, result.message, "Chart order", MessageBoxButton.OK, MessageBoxImage.Warning); UpdateChart(false); }
     protected override void OnClosed(EventArgs e) { _viewModel.ChartChanged -= OnChartChanged; _viewModel.Dispose(); base.OnClosed(e); }
 }

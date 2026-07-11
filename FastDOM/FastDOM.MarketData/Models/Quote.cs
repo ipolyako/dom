@@ -16,6 +16,8 @@ public class Quote
     public int LastSize { get; set; }
     public decimal NetChange { get; set; }
     public decimal NetChangePct { get; set; }
+    public bool IsDelayed { get; set; }
+    public string DataSource { get; set; } = "Unknown";
     public decimal Spread => Ask - Bid;
     public decimal Mid => (Bid + Ask) / 2m;
     public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
@@ -48,4 +50,13 @@ public class Trade
     public decimal Price { get; set; }
     public int Size { get; set; }
     public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+}
+
+public class AccountActivity
+{
+    public required string AccountId { get; init; }
+    public required string MessageType { get; init; }
+    public string MessageData { get; init; } = "";
+    public long Sequence { get; init; }
+    public DateTime TimestampUtc { get; init; } = DateTime.UtcNow;
 }

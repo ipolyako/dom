@@ -15,10 +15,12 @@ public class RuntimeMarketDataProxy : IMarketDataClient
     private readonly Subject<Quote> _quoteSubject = new();
     private readonly Subject<MarketDepth> _depthSubject = new();
     private readonly Subject<Trade> _tradeSubject = new();
+    private readonly Subject<AccountActivity> _accountActivitySubject = new();
     private readonly Subject<bool> _connectionSubject = new();
     private IDisposable? _quoteSub;
     private IDisposable? _depthSub;
     private IDisposable? _tradeSub;
+    private IDisposable? _accountActivitySub;
     private IDisposable? _connSub;
     private IMarketDataClient? _inner;
     private readonly List<string> _quoteSubs = [];
@@ -29,6 +31,7 @@ public class RuntimeMarketDataProxy : IMarketDataClient
     public IObservable<Quote> QuoteStream => _quoteSubject;
     public IObservable<MarketDepth> DepthStream => _depthSubject;
     public IObservable<Trade> TradeStream => _tradeSubject;
+    public IObservable<AccountActivity> AccountActivityStream => _accountActivitySubject;
     public IObservable<bool> ConnectionStateStream => _connectionSubject;
 
     public RuntimeMarketDataProxy(ILogger<RuntimeMarketDataProxy> logger) => _logger = logger;
@@ -40,6 +43,7 @@ public class RuntimeMarketDataProxy : IMarketDataClient
             _quoteSub?.Dispose();
             _depthSub?.Dispose();
             _tradeSub?.Dispose();
+            _accountActivitySub?.Dispose();
             _connSub?.Dispose();
             try { await _inner.DisconnectAsync(ct); } catch { /* best-effort */ }
             await _inner.DisposeAsync();
@@ -49,6 +53,7 @@ public class RuntimeMarketDataProxy : IMarketDataClient
         _quoteSub = newClient.QuoteStream.Subscribe(_quoteSubject);
         _depthSub = newClient.DepthStream.Subscribe(_depthSubject);
         _tradeSub = newClient.TradeStream.Subscribe(_tradeSubject);
+        _accountActivitySub = newClient.AccountActivityStream.Subscribe(_accountActivitySubject);
         _connSub  = newClient.ConnectionStateStream.Subscribe(_connectionSubject);
         _logger.LogInformation("MarketData swapped to {Type}", newClient.GetType().Name);
 
@@ -97,10 +102,12 @@ public class RuntimeMarketDataProxy : IMarketDataClient
         _quoteSub?.Dispose();
         _depthSub?.Dispose();
         _tradeSub?.Dispose();
+        _accountActivitySub?.Dispose();
         _connSub?.Dispose();
         _quoteSubject.Dispose();
         _depthSubject.Dispose();
         _tradeSubject.Dispose();
+        _accountActivitySubject.Dispose();
         _connectionSubject.Dispose();
         if (_inner != null)
             await _inner.DisposeAsync();

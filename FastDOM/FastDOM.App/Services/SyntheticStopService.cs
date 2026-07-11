@@ -47,6 +47,9 @@ public sealed class SyntheticStopService : IDisposable
 
     private void OnQuote(Quote quote)
     {
+        // Never trigger a local protective exit from a closed-market or stale
+        // REST fallback snapshot. Synthetic protection requires a current tick.
+        if (quote.IsStale(10_000)) return;
         foreach (var pair in _stops.Where(x => x.Value.Symbol.Equals(quote.Symbol, StringComparison.OrdinalIgnoreCase)))
         {
             var stop = pair.Value;

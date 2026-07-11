@@ -19,5 +19,6 @@ public interface IMarketDataClient : IAsyncDisposable
     IObservable<Quote> QuoteStream { get; }
     IObservable<MarketDepth> DepthStream { get; }
     IObservable<Trade> TradeStream { get; }
+    IObservable<AccountActivity> AccountActivityStream { get; }
     IObservable<bool> ConnectionStateStream { get; }
 }

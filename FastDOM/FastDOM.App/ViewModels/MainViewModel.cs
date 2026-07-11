@@ -33,6 +33,7 @@ public partial class MainViewModel : ObservableObject
     private readonly DispatcherTimer _statusTimer;
     private readonly DispatcherTimer _accountSyncTimer;
     private bool _accountSyncInFlight;
+    private int _activitySyncInFlight;
     private bool _syncingTicketQuantity;
 
     [ObservableProperty] private string _selectedSymbol = "SPY";
@@ -140,6 +141,7 @@ public partial class MainViewModel : ObservableObject
         _marketData.ConnectionStateStream.Subscribe(connected =>
             Application.Current.Dispatcher.Invoke(() =>
                 DataAgeDisplay = connected ? "Live" : "DISCONNECTED"));
+        _marketData.AccountActivityStream.Subscribe(OnAccountActivity);
 
         _orderService.OrderStateChanged += OnOrderStateChanged;
         _orderService.ToastRequested += ShowToast;
@@ -377,6 +379,33 @@ public partial class MainViewModel : ObservableObject
         LogActivity($"Hotkey: {actionType}");
         await HotButtonsViewModel.ExecuteActionAsync(actionType, symbol, SelectedAccountId,
             ShareSize, _domService.CurrentQuote);
+    }
+
+    private void OnAccountActivity(FastDOM.MarketData.Models.AccountActivity activity)
+    {
+        if (Interlocked.Exchange(ref _activitySyncInFlight, 1) != 0) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var accountId = SelectedAccountId;
+                if (!string.IsNullOrWhiteSpace(accountId))
+                {
+                    _logger.LogInformation("Account activity {Type} seq={Sequence}; reconciling {Account}",
+                        activity.MessageType, activity.Sequence, accountId);
+                    await _orderService.SyncOrdersAsync(accountId);
+                    _accountCache.Invalidate(accountId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Account activity reconciliation failed");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _activitySyncInFlight, 0);
+            }
+        });
     }
 
     private void OnOrderStateChanged(OrderState state)

@@ -18,6 +18,7 @@ public class AlpacaMarketDataClient : IMarketDataClient
     private readonly Subject<Quote> _quoteSubject = new();
     private readonly Subject<MarketDepth> _depthSubject = new();
     private readonly Subject<Trade> _tradeSubject = new();
+    private readonly Subject<AccountActivity> _accountActivitySubject = new();
     private readonly Subject<bool> _connectionSubject = new();
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _wsCts;
@@ -31,6 +32,7 @@ public class AlpacaMarketDataClient : IMarketDataClient
     public IObservable<Quote> QuoteStream => _quoteSubject.AsObservable();
     public IObservable<MarketDepth> DepthStream => _depthSubject.AsObservable();
     public IObservable<Trade> TradeStream => _tradeSubject.AsObservable();
+    public IObservable<AccountActivity> AccountActivityStream => _accountActivitySubject.AsObservable();
     public IObservable<bool> ConnectionStateStream => _connectionSubject.AsObservable();
 
     public AlpacaMarketDataClient(ILogger<AlpacaMarketDataClient> logger, AlpacaConfig config)
@@ -302,6 +304,7 @@ public class AlpacaMarketDataClient : IMarketDataClient
         _quoteSubject.Dispose();
         _depthSubject.Dispose();
         _tradeSubject.Dispose();
+        _accountActivitySubject.Dispose();
         _connectionSubject.Dispose();
         _http.Dispose();
     }

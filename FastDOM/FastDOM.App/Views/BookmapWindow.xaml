@@ -3,10 +3,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:FastDOM.App.Views"
         Title="FastDOM L2 Heat"
-        Height="760"
-        Width="360"
+        Height="820"
+        Width="760"
         MinHeight="420"
-        MinWidth="260"
+        MinWidth="560"
         Background="{StaticResource BackgroundBrush}"
         Foreground="{StaticResource ForegroundBrush}">
     <views:DepthMapView/>

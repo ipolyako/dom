@@ -15,6 +15,7 @@ public class MarketMover
     public decimal LastPrice { get; set; }
     public decimal NetChange { get; set; }
     public decimal NetPercentChange { get; set; }
+    public decimal PreviousClose { get; set; }
     public long Volume { get; set; }
     public long Average10DayVolume { get; set; }
     public decimal RelativeVolume => Average10DayVolume > 0 ? (decimal)Volume / Average10DayVolume : 0;
@@ -25,4 +26,6 @@ public class MarketMover
     public decimal Ask { get; set; }
     public decimal Week52High { get; set; }
     public decimal Week52Low { get; set; }
+    public string NewsReference { get; set; } = "";
+    public string NewsDisplay => string.IsNullOrWhiteSpace(NewsReference) ? "—" : NewsReference;
 }

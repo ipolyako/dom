@@ -393,8 +393,10 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient
                 LastPrice = ReadDecimal(item, "lastPrice"),
                 NetChange = ReadDecimal(item, "netChange"),
                 NetPercentChange = ReadDecimal(item, "netPercentChange"),
+                PreviousClose = ReadDecimal(item, "closePrice"),
                 Volume = ReadLong(item, "totalVolume", "volume"),
-                Trades = ReadLong(item, "trades")
+                Trades = ReadLong(item, "trades"),
+                NewsReference = ReadFirstString(item, "newsHeadline", "headline", "news", "newsUrl")
             });
         }
 
@@ -421,6 +423,7 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient
                 mover.LastPrice = ReadDecimal(quote, "lastPrice", mover.LastPrice);
                 mover.NetChange = ReadDecimal(quote, "netChange", mover.NetChange);
                 mover.NetPercentChange = ReadDecimal(quote, "netPercentChange", mover.NetPercentChange);
+                mover.PreviousClose = ReadDecimal(quote, "closePrice", mover.PreviousClose);
                 mover.Volume = ReadLong(quote, mover.Volume, "totalVolume");
                 mover.Bid = ReadDecimal(quote, "bidPrice");
                 mover.Ask = ReadDecimal(quote, "askPrice");
@@ -431,11 +434,27 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient
                 mover.Average10DayVolume = ReadLong(fundamental, 0, "avg10DaysVolume", "average10DayVolume");
             if (string.IsNullOrWhiteSpace(mover.Description) && root.TryGetProperty("reference", out var reference))
                 mover.Description = ReadString(reference, "description");
+            if (string.IsNullOrWhiteSpace(mover.NewsReference))
+            {
+                mover.NewsReference = ReadFirstString(root, "newsHeadline", "headline", "news", "newsUrl");
+                if (string.IsNullOrWhiteSpace(mover.NewsReference) && root.TryGetProperty("reference", out var newsReference))
+                    mover.NewsReference = ReadFirstString(newsReference, "newsHeadline", "headline", "news", "newsUrl");
+            }
         }
     }
 
     private static string ReadString(JsonElement source, string property) =>
         source.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+
+    private static string ReadFirstString(JsonElement source, params string[] properties)
+    {
+        foreach (var property in properties)
+        {
+            var value = ReadString(source, property);
+            if (!string.IsNullOrWhiteSpace(value)) return value;
+        }
+        return "";
+    }
 
     private static decimal ReadDecimal(JsonElement source, string property, decimal fallback = 0) =>
         source.TryGetProperty(property, out var value) && TryReadDecimal(value, out var parsed) ? parsed : fallback;

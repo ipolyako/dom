@@ -34,6 +34,7 @@
     </Window.Resources>
     <DockPanel>
         <Border DockPanel.Dock="Top" Background="#0D0D0D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,5">
+            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
             <StackPanel Orientation="Horizontal">
                 <TextBox x:Name="SymbolBox" Text="{Binding Symbol}" Width="100" CharacterCasing="Upper" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" KeyDown="SymbolBox_KeyDown" GotKeyboardFocus="SymbolBox_GotKeyboardFocus" PreviewMouseLeftButtonDown="SymbolBox_PreviewMouseLeftButtonDown"/>
                 <ComboBox Style="{StaticResource ChartComboStyle}" ItemsSource="{Binding Timeframes}" SelectedItem="{Binding SelectedTimeframe}" Width="110" Margin="7,0" SelectionChanged="Timeframe_Changed"/>
@@ -47,8 +48,10 @@
                 <CheckBox x:Name="PremarketToggle" Content="Pre Mkt H/L" IsChecked="False" Margin="4,0" Click="Indicator_Click"/>
                 <CheckBox x:Name="CamarillaToggle" Content="Camarilla" IsChecked="False" Margin="4,0" Click="Indicator_Click"/>
             </StackPanel>
+            </Viewbox>
         </Border>
         <Border DockPanel.Dock="Top" Background="#11171B" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,4">
+            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
             <StackPanel Orientation="Horizontal">
                 <ToggleButton x:Name="ArmToggle" Style="{StaticResource ChartArmStyle}" Content="TRADE DISARMED" Width="125" Click="Arm_Click"/>
                 <TextBlock Text="Side" VerticalAlignment="Center" Margin="12,0,4,0"/><ComboBox x:Name="SideBox" Style="{StaticResource ChartComboStyle}" Width="70" SelectionChanged="TradeInput_Changed"/>
@@ -62,8 +65,8 @@
                 <Button Content="Risk Buy" Width="82" Margin="8,0,2,0" Background="#1565C0" Click="RiskBuy_Click"/>
                 <Button Content="Risk Simple" Width="92" Margin="2,0" Background="#1976D2" Click="RiskBuySimple_Click"/>
                 <Button Content="Secure" Width="78" Margin="2,0" Background="#00838F" Click="Secure_Click"/>
-                <TextBlock Text="{Binding TradeStatus}" Foreground="{StaticResource SecondaryForeBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
             </StackPanel>
+            </Viewbox>
         </Border>
         <Border DockPanel.Dock="Bottom" Background="#0D0D0D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,4"><TextBlock Text="{Binding Status}" Foreground="{StaticResource SecondaryForeBrush}"/></Border>
         <local:TradingChartControl x:Name="Chart" xmlns:local="clr-namespace:FastDOM.App.Views" Focusable="True"/>

@@ -46,13 +46,18 @@ public partial class WatchlistItem : ObservableObject
     }
 }
 
-public partial class WatchlistViewModel : ObservableObject
+public partial class WatchlistViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly IMarketDataClient _marketData;
     private readonly ILogger<WatchlistViewModel> _logger;
     private readonly string _savePath;
     private IDisposable? _quoteSub;
     private readonly DispatcherTimer _refreshTimer;
+    private readonly Dispatcher _dispatcher;
+    private readonly CancellationTokenSource _shutdown = new();
+    private Task _initialTask = Task.CompletedTask;
+    private Task _refreshTask = Task.CompletedTask;
+    private bool _disposed;
     private readonly HashSet<string> _subscribedSymbols = new(StringComparer.OrdinalIgnoreCase);
     private bool _refreshInFlight;
 
@@ -65,6 +70,7 @@ public partial class WatchlistViewModel : ObservableObject
     {
         _marketData = marketData;
         _logger = logger;
+        _dispatcher = Dispatcher.CurrentDispatcher;
         _savePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "FastDOM", "watchlist.json");
@@ -73,10 +79,10 @@ public partial class WatchlistViewModel : ObservableObject
         _quoteSub = marketData.QuoteStream.Subscribe(OnQuote);
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
-        _refreshTimer.Tick += async (_, _) => await RefreshSnapshotsAsync();
+        _refreshTimer.Tick += OnRefreshTimerTick;
         _refreshTimer.Start();
 
-        _ = ResubscribeAsync();
+        _initialTask = ResubscribeAsync(_shutdown.Token);
     }
 
     [RelayCommand]
@@ -97,7 +103,8 @@ public partial class WatchlistViewModel : ObservableObject
                 await _marketData.SubscribeQuotesAsync(sym);
             var snap = await _marketData.GetSnapshotAsync(sym);
             if (snap != null)
-                Application.Current.Dispatcher.Invoke(() =>
+                if (!_dispatcher.HasShutdownStarted && !_dispatcher.HasShutdownFinished)
+                    _dispatcher.Invoke(() =>
                 {
                     item.Last   = snap.Last;
                     item.Change = snap.NetChange;
@@ -130,28 +137,43 @@ public partial class WatchlistViewModel : ObservableObject
     }
 
     // Called after DOM symbol changes to keep watch subscriptions alive.
-    public async Task ResubscribeAsync()
+    public Task ResubscribeAsync() => ResubscribeAsync(_shutdown.Token);
+
+    private async Task ResubscribeAsync(CancellationToken ct)
     {
         foreach (var item in Items.ToList())
         {
             try
             {
                 if (_subscribedSymbols.Add(item.Symbol))
-                    await _marketData.SubscribeQuotesAsync(item.Symbol);
-                await RefreshSnapshotAsync(item);
+                    await _marketData.SubscribeQuotesAsync(item.Symbol, ct);
+                await RefreshSnapshotAsync(item, ct);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception ex) { _logger.LogDebug(ex, "Resubscribe failed: {Sym}", item.Symbol); }
         }
     }
 
-    private async Task RefreshSnapshotsAsync()
+    private async void OnRefreshTimerTick(object? sender, EventArgs e)
     {
-        if (_refreshInFlight) return;
+        if (_disposed || _refreshTask is { IsCompleted: false }) return;
+        _refreshTask = RefreshSnapshotsAsync(_shutdown.Token);
+        try { await _refreshTask; }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
+        catch (Exception ex) { _logger.LogDebug(ex, "Watchlist periodic refresh failed"); }
+    }
+
+    private async Task RefreshSnapshotsAsync(CancellationToken ct)
+    {
+        if (_refreshInFlight || _disposed) return;
         _refreshInFlight = true;
         try
         {
             foreach (var item in Items.ToList())
-                await RefreshSnapshotAsync(item);
+            {
+                ct.ThrowIfCancellationRequested();
+                await RefreshSnapshotAsync(item, ct);
+            }
         }
         finally
         {
@@ -159,11 +181,11 @@ public partial class WatchlistViewModel : ObservableObject
         }
     }
 
-    private async Task RefreshSnapshotAsync(WatchlistItem item)
+    private async Task RefreshSnapshotAsync(WatchlistItem item, CancellationToken ct)
     {
-        var snap = await _marketData.GetSnapshotAsync(item.Symbol);
-        if (snap == null) return;
-        Application.Current.Dispatcher.Invoke(() =>
+        var snap = await _marketData.GetSnapshotAsync(item.Symbol, ct);
+        if (snap == null || _disposed || _dispatcher.HasShutdownStarted || _dispatcher.HasShutdownFinished) return;
+        _dispatcher.Invoke(() =>
         {
             item.Last = snap.Last;
             item.Change = snap.NetChange;
@@ -174,11 +196,29 @@ public partial class WatchlistViewModel : ObservableObject
     {
         var item = Items.FirstOrDefault(i => i.Symbol == q.Symbol);
         if (item == null) return;
-        Application.Current.Dispatcher.Invoke(() =>
+        if (_disposed || _dispatcher.HasShutdownStarted || _dispatcher.HasShutdownFinished) return;
+        _dispatcher.Invoke(() =>
         {
             item.Last   = q.Last;
             item.Change = q.NetChange;
         });
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _refreshTimer.Stop();
+        _refreshTimer.Tick -= OnRefreshTimerTick;
+        _shutdown.Cancel();
+        _quoteSub?.Dispose();
+        try { await Task.WhenAll(_initialTask, _refreshTask); }
+        catch (OperationCanceledException) { }
+        // The singleton market-data proxy is disposed immediately after this
+        // view model. Do not issue one network unsubscribe per watchlist item
+        // during application shutdown; proxy disposal closes them together.
+        _subscribedSymbols.Clear();
+        _shutdown.Dispose();
     }
 
     private record SavedItem(string Symbol, bool IsOption = false);

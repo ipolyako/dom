@@ -23,6 +23,7 @@ public partial class ChartViewModel : ObservableObject, IDisposable
     private readonly IDisposable _depthSubscription;
     private CancellationTokenSource? _loadCts;
     private string? _subscribedSymbol;
+    private int _disposed;
 
     [ObservableProperty] private string _symbol = "SPY";
     [ObservableProperty] private ChartTimeframe _selectedTimeframe;
@@ -251,8 +252,15 @@ public partial class ChartViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
-        _loadCts?.Cancel();
-        _loadCts?.Dispose();
+        // Transient view models created by Microsoft DI are tracked and
+        // disposed again when the root provider shuts down. The chart window
+        // also disposes its view model when it closes, so teardown must be
+        // safe when both paths run during application shutdown.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
+        var loadCts = Interlocked.Exchange(ref _loadCts, null);
+        loadCts?.Cancel();
+        loadCts?.Dispose();
         _quoteSubscription.Dispose();
         _depthSubscription.Dispose();
         _orders.OrderStateChanged -= OnOrderStateChanged;

@@ -74,7 +74,8 @@ public partial class HotButtonsViewModel : ObservableObject
     }
 
     public async Task ExecuteButtonAsync(HotButtonConfig btn, string symbol, string accountId,
-        int defaultSize, Quote? quote, Position? position)
+        int defaultSize, Quote? quote, Position? position,
+        IReadOnlyDictionary<string, decimal>? presetVariables = null)
     {
         if (!btn.IsEnabled) return;
         AccountSummary? account = null;
@@ -106,6 +107,9 @@ public partial class HotButtonsViewModel : ObservableObject
                 PromptUser  = ShowInputDialogAsync,
             };
             ctx.Variables["AMOUNT"] = TradeAmount;
+            if (presetVariables != null)
+                foreach (var variable in presetVariables)
+                    ctx.Variables[variable.Key.ToUpperInvariant()] = variable.Value;
             await _scriptEngine.ExecuteAsync(script, ctx);
             return;
         }

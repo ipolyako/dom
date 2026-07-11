@@ -229,7 +229,10 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         var button = _hotButtons?.Buttons.FirstOrDefault(b => string.Equals(b.Id, id, StringComparison.OrdinalIgnoreCase));
         if (button == null) { TradeStatus = $"Configured action not found: {id}"; return; }
         await RefreshPositionAsync();
-        await _hotButtons!.ExecuteButtonAsync(button, Symbol, AccountId, TradeQuantity, CurrentQuote, CurrentPosition);
+        IReadOnlyDictionary<string, decimal>? variables = StagedPrice is > 0
+            ? new Dictionary<string, decimal> { ["STOP"] = StagedPrice.Value }
+            : null;
+        await _hotButtons!.ExecuteButtonAsync(button, Symbol, AccountId, TradeQuantity, CurrentQuote, CurrentPosition, variables);
         TradeStatus = $"{button.Label} completed"; RefreshTradingState(); ChartChanged?.Invoke();
     }
 

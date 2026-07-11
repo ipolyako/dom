@@ -101,6 +101,10 @@ public class ScriptEngine
                 var varName = Take();
                 if (string.IsNullOrWhiteSpace(varName))
                     throw new ScriptException("DIALOG: variable name required");
+                // Callers such as chart trading may pre-stage a value. In that
+                // case DIALOG acts as a fallback instead of asking twice.
+                if (ctx.Variables.ContainsKey(varName))
+                    return prevEntry;
                 if (ctx.PromptUser == null)
                     throw new ScriptException("DIALOG requires a UI context");
 

@@ -2,6 +2,9 @@
 **/bin/
 **/obj/
 publish_test/
+/publish_stage_*/
+/publish_noself/
+/FastDOM/**/publish/
 
 # publish/ is tracked — only exclude files containing credentials
 publish/broker.schwab.json

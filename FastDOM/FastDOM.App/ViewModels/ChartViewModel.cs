@@ -5,7 +5,7 @@ using FastDOM.MarketData.Models;
 
 namespace FastDOM.App.ViewModels;
 
-public record ChartTimeframe(string Label, PriceHistoryRequest Request)
+public record ChartTimeframe(string Label, PriceHistoryRequest Request, int AggregateMinutes = 0)
 {
     public override string ToString() => Label;
 }
@@ -30,6 +30,8 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         new("5m · 5D", new("day", 5, "minute", 5)),
         new("15m · 10D", new("day", 10, "minute", 15)),
         new("30m · 10D", new("day", 10, "minute", 30)),
+        new("1H · 10D", new("day", 10, "minute", 30), 60),
+        new("4H · 10D", new("day", 10, "minute", 30), 240),
         new("1D · 1M", new("month", 1, "daily", 1)),
         new("1D · 3M", new("month", 3, "daily", 1)),
         new("1D · 1Y", new("year", 1, "daily", 1)),
@@ -54,13 +56,43 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         try
         {
             var request = SelectedTimeframe.Request with { IncludeExtendedHours = IncludeExtendedHours };
-            Candles = await _history.GetPriceHistoryAsync(Symbol, request, _loadCts.Token);
+            var candles = await _history.GetPriceHistoryAsync(Symbol, request, _loadCts.Token);
+            Candles = SelectedTimeframe.AggregateMinutes > 0
+                ? Aggregate(candles, SelectedTimeframe.AggregateMinutes)
+                : candles;
             Status = Candles.Count == 0 ? $"No history returned for {Symbol}" :
                 $"{Symbol} · {SelectedTimeframe.Label} · {Candles.Count:N0} candles · {Candles[^1].Timestamp:g}";
             ChartChanged?.Invoke();
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Status = ex.Message; }
+    }
+
+    private static IReadOnlyList<PriceCandle> Aggregate(IReadOnlyList<PriceCandle> source, int minutes)
+    {
+        if (source.Count == 0 || minutes <= 0) return source;
+        return source
+            .GroupBy(c =>
+            {
+                var bucket = (c.Timestamp.Hour * 60 + c.Timestamp.Minute) / minutes * minutes;
+                return new DateTime(c.Timestamp.Year, c.Timestamp.Month, c.Timestamp.Day,
+                    bucket / 60, bucket % 60, 0, c.Timestamp.Kind);
+            })
+            .OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var ordered = group.OrderBy(c => c.Timestamp).ToArray();
+                return new PriceCandle
+                {
+                    Timestamp = group.Key,
+                    Open = ordered[0].Open,
+                    High = ordered.Max(c => c.High),
+                    Low = ordered.Min(c => c.Low),
+                    Close = ordered[^1].Close,
+                    Volume = ordered.Sum(c => c.Volume)
+                };
+            })
+            .ToArray();
     }
 
     private void OnQuote(Quote quote)

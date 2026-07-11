@@ -23,7 +23,14 @@ public partial class BookmapWindow : Window
     private void AddLockedTab(DepthMapViewModel vm)
     {
         _viewModels.Add(vm);
-        var header = new TextBlock { FontWeight = FontWeights.Bold, MinWidth = 80 };
+        var header = new TextBlock
+        {
+            FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 13,
+            Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush"),
+            MinWidth = 80
+        };
         header.SetBinding(TextBlock.TextProperty, new Binding(nameof(DepthMapViewModel.Symbol)) { Source = vm });
         SymbolTabs.Items.Add(new TabItem
         {
@@ -40,8 +47,14 @@ public partial class BookmapWindow : Window
         var symbolBox = new TextBox
         {
             Text = "Enter symbol",
-            MinWidth = 95,
+            Width = 95,
             MaxLength = 24,
+            CharacterCasing = CharacterCasing.Upper,
+            FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+            FontWeight = FontWeights.Bold,
+            FontSize = 13,
+            Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush"),
+            VerticalContentAlignment = VerticalAlignment.Center,
             ToolTip = "Type a symbol and press Enter"
         };
         var close = new Button { Content = "×", Width = 22, Height = 22, Margin = new Thickness(5, 0, 0, 0) };

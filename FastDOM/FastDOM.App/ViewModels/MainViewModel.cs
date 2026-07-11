@@ -528,7 +528,16 @@ public partial class MainViewModel : ObservableObject
     private void UpdateDataAge()
     {
         if (_domService.CurrentQuote != null)
-            DataAgeDisplay = $"{_domService.CurrentQuote.AgeMs}ms";
+            DataAgeDisplay = FormatDataAge(TimeSpan.FromMilliseconds(Math.Max(0, _domService.CurrentQuote.AgeMs)));
+    }
+
+    internal static string FormatDataAge(TimeSpan age)
+    {
+        if (age.TotalSeconds < 1) return $"{Math.Max(0, (int)age.TotalMilliseconds)}ms";
+        if (age.TotalMinutes < 1) return $"{(int)age.TotalSeconds}s";
+        if (age.TotalHours < 1) return $"{(int)age.TotalMinutes}m {age.Seconds:D2}s";
+        if (age.TotalDays < 1) return $"{(int)age.TotalHours}h {age.Minutes:D2}m";
+        return $"{(int)age.TotalDays}d {age.Hours:D2}h";
     }
 
     private void ShowToast(string message)

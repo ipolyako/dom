@@ -32,6 +32,7 @@ public partial class DomView : UserControl
     }
 
     private DomViewModel? ViewModel => DataContext as DomViewModel;
+    private DomViewModel? _wiredViewModel;
     private bool _centerQueued;
 
     public DomView()
@@ -42,9 +43,21 @@ public partial class DomView : UserControl
 
     private void WireViewModel()
     {
-        if (ViewModel == null) return;
-        ViewModel.Rows.CollectionChanged += (_, _) => QueueCenterOnLast(force: false);
+        if (_wiredViewModel != null)
+        {
+            _wiredViewModel.RowsUpdated -= OnRowsUpdated;
+            _wiredViewModel.CenterRequested -= OnCenterRequested;
+        }
+
+        _wiredViewModel = ViewModel;
+        if (_wiredViewModel == null) return;
+        _wiredViewModel.Rows.CollectionChanged += (_, _) => QueueCenterOnLast(force: false);
+        _wiredViewModel.RowsUpdated += OnRowsUpdated;
+        _wiredViewModel.CenterRequested += OnCenterRequested;
     }
+
+    private void OnRowsUpdated() => QueueCenterOnLast(force: false);
+    private void OnCenterRequested() => QueueCenterOnLast(force: true);
 
     // Drag state for moving an existing working order to a new price.
     // Cancel is intentionally only wired to the × button on the order marker —
@@ -82,7 +95,7 @@ public partial class DomView : UserControl
         else if (colIndex == 4)
             ViewModel?.OnSellColumnClicked(row.Price, modifiers);
         else
-            ViewModel?.OnBuyColumnClicked(row.Price, modifiers);
+            return;
 
         RaiseEvent(new RoutedEventArgs(DomPriceLevelClickedEvent, this));
         e.Handled = true;
@@ -96,7 +109,10 @@ public partial class DomView : UserControl
             return;
         }
 
-        _dragOrders = orders;
+        _dragOrders = orders
+            .GroupBy(BuildDragOrderKey)
+            .Select(g => g.First())
+            .ToArray();
         _dragFromPrice = fromPrice;
         _dragSide = side;
         _dragStartPos = e.GetPosition(DomRows);
@@ -109,9 +125,12 @@ public partial class DomView : UserControl
         {
             ViewModel.DragTargetSide = side;
             ViewModel.DragTargetPrice = fromPrice;
-            ViewModel.DragPreviewSummary = string.Join("+", orders.Select(o => o.QuantityRemaining));
+            ViewModel.DragPreviewSummary = string.Join("+", _dragOrders.Select(o => o.QuantityRemaining));
         }
     }
+
+    private static string BuildDragOrderKey(OrderState order) =>
+        $"{order.Symbol}|{order.Side}|{order.QuantityRemaining}|{order.LimitPrice:F4}|{order.StopPrice:F4}";
 
     private decimal _dragFromPrice;
     private OrderSide _dragSide;
@@ -158,7 +177,7 @@ public partial class DomView : UserControl
         if (target == null || target.Price == fromPrice) { ClearDragPreview(); return; }
 
         foreach (var o in orders)
-            ViewModel?.OnOrderDragged(o, target.Price);
+            ViewModel?.OnOrderDragged(o, fromPrice, target.Price);
 
         ClearDragPreview();
         e.Handled = true;
@@ -336,10 +355,16 @@ public partial class DomView : UserControl
     {
         if (ViewModel == null) return;
         ViewModel.IsLocked = !ViewModel.IsLocked;
+        if (ViewModel.IsLocked)
+            ViewModel.CenterLadderOnLast();
         QueueCenterOnLast(force: true);
     }
 
-    private void CenterButton_Click(object sender, RoutedEventArgs e) => QueueCenterOnLast(force: true);
+    private void CenterButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel?.CenterLadderOnLast();
+        QueueCenterOnLast(force: true);
+    }
 
     private void QueueCenterOnLast(bool force)
     {
@@ -367,18 +392,20 @@ public partial class DomView : UserControl
         }
     }
 
-    // Divide the row width into 5 columns; return 0-4 index based on click x position
+    // Mirrors DomView.xaml row columns:
+    // BUY(*), BID(60), PRICE(86), ASK(60), SELL(*), P/L(78).
     private static int GetColumnIndex(Point pt, double totalWidth)
     {
-        double[] widths = [70, 60, 0, 60, 70]; // last is flex
+        var fixedWidth = 60d + 86d + 60d + 78d;
+        var flexWidth = Math.Max(70d, (totalWidth - fixedWidth) / 2d);
+        double[] widths = [flexWidth, 60d, 86d, 60d, flexWidth, 78d];
         double x = 0;
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < widths.Length; i++)
         {
-            double colW = widths[i] > 0 ? widths[i] : totalWidth - 70 - 60 - 60 - 70;
-            x += colW;
+            x += widths[i];
             if (pt.X < x) return i;
         }
-        return 4;
+        return widths.Length - 1;
     }
 
     private static bool IsDomRowCancelButtonClick(object? source)

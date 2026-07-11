@@ -138,7 +138,7 @@ public class SchwabOrderMapper
             throw new ArgumentException("Bracket order requires BracketConfig");
 
         var exitInstruction = req.Side == OrderSide.Buy ? "SELL" : "BUY_TO_COVER";
-        var symbol = req.Symbol;
+        var symbol = MapSymbol(req.Symbol, req.AssetType);
         var qty = req.Quantity;
         var assetType = MapAssetType(req.AssetType);
 
@@ -243,14 +243,43 @@ public class SchwabOrderMapper
         ["quantity"]    = req.Quantity,
         ["instrument"]  = new Dictionary<string, string>
         {
-            ["symbol"]    = req.Symbol,
+            ["symbol"]    = MapSymbol(req.Symbol, req.AssetType),
             ["assetType"] = MapAssetType(req.AssetType)
         }
     };
 
+    private static string MapSymbol(string symbol, AssetType assetType) =>
+        assetType == AssetType.Option && TrySplitOptionSymbol(symbol, out var root, out var suffix)
+            ? root.PadRight(6) + suffix
+            : symbol.Trim().ToUpperInvariant();
+
+    private static bool TrySplitOptionSymbol(string symbol, out string root, out string suffix)
+    {
+        symbol = symbol.Trim().ToUpperInvariant();
+        root = "";
+        suffix = "";
+
+        for (var i = 1; i <= Math.Min(6, symbol.Length - 15); i++)
+        {
+            var candidateSuffix = symbol[i..].TrimStart();
+            if (candidateSuffix.Length != 15) continue;
+            if (!candidateSuffix[..6].All(char.IsDigit)) continue;
+            if (candidateSuffix[6] is not ('C' or 'P')) continue;
+            if (!candidateSuffix[7..].All(char.IsDigit)) continue;
+
+            root = symbol[..i].Trim();
+            suffix = candidateSuffix;
+            return root.Length > 0;
+        }
+
+        return false;
+    }
+
     private static string MapInstruction(OrderSide side, AssetType assetType) =>
         (side, assetType) switch
         {
+            (OrderSide.Buy, AssetType.Option)  => "BUY_TO_OPEN",
+            (OrderSide.Sell, AssetType.Option) => "SELL_TO_CLOSE",
             (OrderSide.Buy, _)           => "BUY",
             (OrderSide.Sell, AssetType.Equity or AssetType.ETF) => "SELL",
             _ => side == OrderSide.Buy ? "BUY" : "SELL"

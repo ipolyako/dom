@@ -21,26 +21,41 @@
         </DockPanel>
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <ItemsControl ItemsSource="{Binding Buttons}" Margin="4">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <WrapPanel Orientation="Horizontal"/>
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Button Width="100" Height="30" Margin="2"
-                                Content="{Binding Label}"
-                                Background="{Binding Color}"
-                                Foreground="{Binding TextColor}"
-                                FontWeight="Bold" FontSize="11"
-                                Click="HotButton_Click"
-                                Tag="{Binding}"
-                                IsEnabled="{Binding IsEnabled}"
-                                ToolTip="{Binding KeyboardShortcut}"/>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <ScrollViewer.Resources>
+                <DataTemplate x:Key="HotButtonTemplate">
+                    <Button Height="30" Margin="2"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Content="{Binding Label}"
+                            Background="{Binding Color}"
+                            Foreground="{Binding TextColor}"
+                            FontWeight="Bold" FontSize="11"
+                            Click="HotButton_Click"
+                            Tag="{Binding}"
+                            IsEnabled="{Binding IsEnabled}"
+                            ToolTip="{Binding KeyboardShortcut}"/>
+                </DataTemplate>
+            </ScrollViewer.Resources>
+            <StackPanel Margin="4">
+                <ItemsControl ItemsSource="{Binding EntryButtons}"
+                              ItemTemplate="{StaticResource HotButtonTemplate}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+
+                <!-- Match the left order-ticket controls: Flatten and Cancel
+                     are full-width, stacked, and immediately below entries. -->
+                <ItemsControl ItemsSource="{Binding FullWidthButtons}"
+                              ItemTemplate="{StaticResource HotButtonTemplate}"/>
+
+                <ItemsControl ItemsSource="{Binding StrategyButtons}"
+                              ItemTemplate="{StaticResource HotButtonTemplate}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </StackPanel>
         </ScrollViewer>
     </DockPanel>
 </UserControl>

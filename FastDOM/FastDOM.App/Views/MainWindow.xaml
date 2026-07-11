@@ -6,8 +6,8 @@
         xmlns:views="clr-namespace:FastDOM.App.Views"
         mc:Ignorable="d"
         Title="FastDOM — Execution Terminal"
-        Height="870" Width="980"
-        MinHeight="700" MinWidth="860"
+        Height="1060" Width="1080"
+        MinHeight="850" MinWidth="1000"
         Background="{StaticResource BackgroundBrush}"
         Foreground="{StaticResource ForegroundBrush}"
         PreviewKeyDown="Window_KeyDown">
@@ -21,6 +21,10 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
@@ -42,6 +46,7 @@
                          GotKeyboardFocus="SymbolTextBox_GotKeyboardFocus"
                          PreviewMouseLeftButtonDown="SymbolTextBox_PreviewMouseLeftButtonDown"
                          FontFamily="Consolas" FontWeight="Bold" FontSize="13"
+                         Foreground="{StaticResource AccentBrush}"
                          CharacterCasing="Upper"
                          VerticalContentAlignment="Center"
                          Margin="0,0,4,0"/>
@@ -65,14 +70,18 @@
                                Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Orders button — orange when open orders exist -->
-                <Button Grid.Column="5" Content="Orders" Width="80" Margin="4,0"
+                <!-- L2 heat opens in its own UI thread/window so it doesn't slow the main DOM -->
+                <Button Grid.Column="5" Content="L2 Heat" Width="70" Margin="4,0"
+                        Click="BookmapButton_Click"
+                        ToolTip="Open significant L2 liquidity heat map in a separate window"/>
+
+                <Button Grid.Column="6" Content="Orders" Width="80" Margin="4,0"
                         Background="{Binding HasOpenOrders, Converter={StaticResource OrdersBrushConverter}}"
                         Click="OrdersButton_Click"
                         ToolTip="View and cancel open orders"/>
 
                 <!-- Hotkeys armed indicator -->
-                <Border Grid.Column="6" CornerRadius="3" Padding="6,2" Margin="4,0,0,0"
+                <Border Grid.Column="7" CornerRadius="3" Padding="6,2" Margin="4,0,0,0"
                         Background="{Binding HotkeysArmed, Converter={StaticResource HotkeyBrushConverter}}"
                         ToolTip="Click to toggle hotkeys" Cursor="Hand"
                         MouseLeftButtonUp="HotkeyIndicator_Click">
@@ -81,13 +90,13 @@
                 </Border>
 
                 <!-- Hotkey settings button -->
-                <Button Grid.Column="7" Content="⚙" Width="26" Height="26" Margin="2,0,0,0"
+                <Button Grid.Column="8" Content="⚙" Width="26" Height="26" Margin="2,0,0,0"
                         FontSize="14" Padding="0"
                         ToolTip="Configure hotkeys"
                         Click="HotkeySettings_Click"/>
 
                 <!-- Options chain button -->
-                <Button Grid.Column="8" Content="OPT" Width="40" Height="26" Margin="2,0,0,0"
+                <Button Grid.Column="9" Content="OPT" Width="40" Height="26" Margin="2,0,0,0"
                         FontSize="11" FontWeight="Bold" Padding="0"
                         ToolTip="Open options chain"
                         Click="OpenOptionsChain_Click"/>
@@ -117,8 +126,8 @@
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="292"/>   <!-- Position + Order ticket -->
-                <ColumnDefinition Width="*"/>     <!-- DOM -->
-                <ColumnDefinition Width="220"/>   <!-- Hot buttons -->
+                <ColumnDefinition Width="*" MinWidth="420"/>     <!-- DOM -->
+                <ColumnDefinition Width="285" MinWidth="285"/>   <!-- Hot buttons + watchlist -->
             </Grid.ColumnDefinitions>
 
             <!-- LEFT PANEL: Position + Order ticket + Emergency -->
@@ -136,7 +145,7 @@
 
 <!-- Position panel — fixed height so the order ticket always has room -->
                 <views:PositionView DockPanel.Dock="Top" DataContext="{Binding PositionViewModel}"
-                                    Height="185"/>
+                                    Height="265"/>
 
                 <!-- Share size -->
                 <Border DockPanel.Dock="Top" Padding="8,4"
@@ -182,7 +191,12 @@
             </Border>
 
             <!-- CENTER: Position strip + DOM -->
-            <DockPanel Grid.Column="1">
+            <Grid Grid.Column="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="420"/>
+                </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.Column="0">
 
                 <!-- Position summary strip above DOM -->
                 <Border DockPanel.Dock="Top" Background="#FF111111" Padding="6,5"
@@ -266,22 +280,20 @@
                                DomPriceLevelClicked="OnDomPriceLevelClicked"
                                DomContextMenuRequested="OnDomContextMenu"/>
             </DockPanel>
+            </Grid>
 
             <!-- RIGHT: Hot buttons + Watchlist -->
             <Border Grid.Column="2" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1,0,0,0">
-                <DockPanel>
-                    <!-- Watchlist: fixed height for ~10 symbols, docked to bottom -->
-                    <Border DockPanel.Dock="Bottom" Height="270"
-                            BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
-                        <views:WatchlistView DataContext="{Binding WatchlistViewModel}"/>
-                    </Border>
+                <DockPanel LastChildFill="True">
                     <Border DockPanel.Dock="Top" Padding="8,6"
                             Background="{StaticResource PanelBrush}"
                             BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,0,1"
                             DataContext="{Binding HotButtonsViewModel}">
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="42"/>
+                                <ColumnDefinition Width="44"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="52"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Risk:" VerticalAlignment="Center"
@@ -292,13 +304,27 @@
                                      FontFamily="Consolas"
                                      FontWeight="Bold"
                                      VerticalContentAlignment="Center"
+                                     Margin="0,0,8,0"
                                      ToolTip="Dollar risk used by the Risk Buy hot button"/>
+                            <TextBlock Grid.Column="2" Text="Amount:" VerticalAlignment="Center"
+                                       FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource SecondaryForeBrush}"/>
+                            <TextBox Grid.Column="3"
+                                     Text="{Binding TradeAmount, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"
+                                     FontFamily="Consolas"
+                                     FontWeight="Bold"
+                                     VerticalContentAlignment="Center"
+                                     ToolTip="Dollar notional used by Buy/Sell market/ask/bid hot buttons"/>
                         </Grid>
                     </Border>
-                    <!-- Hot buttons fills remaining space -->
-                    <views:HotButtonsView DataContext="{Binding HotButtonsViewModel}"
+                    <!-- Hot buttons stay compact; watchlist fills the rest. -->
+                    <views:HotButtonsView DockPanel.Dock="Top"
+                                          DataContext="{Binding HotButtonsViewModel}"
                                           HotButtonExecuted="OnHotButtonExecuted"
                                           HotButtonSettingsRequested="OnHotButtonSettingsRequested"/>
+                    <Border BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
+                        <views:WatchlistView DataContext="{Binding WatchlistViewModel}"/>
+                    </Border>
                 </DockPanel>
             </Border>
         </Grid>

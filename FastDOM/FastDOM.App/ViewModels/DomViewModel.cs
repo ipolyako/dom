@@ -22,6 +22,7 @@ public partial class DomViewModel : ObservableObject
 
     [ObservableProperty] private string _symbol = "SPY";
     [ObservableProperty] private int _visibleLevels = 120;
+    [ObservableProperty] private int _priceStepTicks = 1;
     [ObservableProperty] private bool _isLocked;
     [ObservableProperty] private decimal _clickedPrice;
     [ObservableProperty] private bool _hasDepth;
@@ -34,14 +35,17 @@ public partial class DomViewModel : ObservableObject
 
     public ObservableCollection<DomLadderRow> Rows { get; } = [];
     public ObservableCollection<OrderState> WorkingOrders { get; } = [];
+    public string PriceStepDisplay => PriceStepTicks == 1 ? "1t" : $"{PriceStepTicks}t";
 
     public string? CurrentAccountId { get; set; }
     public Position? CurrentPosition { get; set; }
 
     public event Action<decimal, OrderSide, OrderType>? PriceLevelClicked;
-    public event Action<OrderState, decimal>? OrderMoveRequested;
+    public event Action<OrderState, decimal, decimal>? OrderMoveRequested;
     public event Action<decimal>? ContextMenuRequested;
     public event Action<string>? DragError;
+    public event Action? RowsUpdated;
+    public event Action? CenterRequested;
 
     public DomViewModel(ILogger<DomViewModel> logger, DomService domService,
                         OrderService orderService, ConfigManager config)
@@ -69,7 +73,23 @@ public partial class DomViewModel : ObservableObject
     {
         if (!_pendingUpdate) return;
         _pendingUpdate = false;
+        if (IsLocked)
+            _domService.CenterLadderOnLast();
+        else
+            _domService.CenterLadderOnLastIfOutsideVisibleRange(VisibleLevels, PriceStepTicks);
         RebuildLadder();
+    }
+
+    public void CenterLadderOnLast()
+    {
+        _domService.CenterLadderOnLast();
+        RebuildLadder();
+    }
+
+    partial void OnIsLockedChanged(bool value)
+    {
+        if (value)
+            CenterLadderOnLast();
     }
 
     public void RefreshOrders(IEnumerable<OrderState> orders)
@@ -78,6 +98,12 @@ public partial class DomViewModel : ObservableObject
         foreach (var o in orders.Where(o => o.IsWorking && o.Symbol == Symbol))
             WorkingOrders.Add(o);
         _pendingUpdate = true;
+    }
+
+    public void SetCurrentPosition(Position? position)
+    {
+        CurrentPosition = position;
+        RebuildLadder();
     }
 
     // When the DOM's symbol changes, re-filter WorkingOrders against the new
@@ -98,8 +124,9 @@ public partial class DomViewModel : ObservableObject
 
     private void RebuildLadder()
     {
-        _domService.PopulateLadder(Rows, VisibleLevels, WorkingOrders, CurrentPosition);
+        _domService.PopulateLadder(Rows, VisibleLevels, PriceStepTicks, WorkingOrders, CurrentPosition);
         HasDepth = Rows.Count > 0 && Rows[0].HasRealDepth;
+        RowsUpdated?.Invoke();
     }
 
     partial void OnVisibleLevelsChanged(int value)
@@ -118,12 +145,51 @@ public partial class DomViewModel : ObservableObject
     private void IncreaseDepth()
     {
         VisibleLevels = Math.Min(400, VisibleLevels + 100);
+        CenterLadderOnLast();
+        CenterRequested?.Invoke();
     }
 
     [RelayCommand]
     private void DecreaseDepth()
     {
         VisibleLevels = Math.Max(20, VisibleLevels - 100);
+        CenterLadderOnLast();
+        CenterRequested?.Invoke();
+    }
+
+    private static readonly int[] StepChoices = [1, 2, 5, 10, 25, 50, 100];
+
+    partial void OnPriceStepTicksChanged(int value)
+    {
+        var clamped = StepChoices.Contains(value) ? value : 1;
+        if (clamped != value)
+        {
+            PriceStepTicks = clamped;
+            return;
+        }
+
+        OnPropertyChanged(nameof(PriceStepDisplay));
+        _pendingUpdate = true;
+    }
+
+    [RelayCommand]
+    private void ZoomIn()
+    {
+        var idx = Array.IndexOf(StepChoices, PriceStepTicks);
+        PriceStepTicks = StepChoices[Math.Max(0, idx - 1)];
+    }
+
+    [RelayCommand]
+    private void ZoomOut()
+    {
+        var idx = Array.IndexOf(StepChoices, PriceStepTicks);
+        PriceStepTicks = StepChoices[Math.Min(StepChoices.Length - 1, Math.Max(0, idx) + 1)];
+    }
+
+    [RelayCommand]
+    private void ResetZoom()
+    {
+        PriceStepTicks = 1;
     }
 
     // Called by DOM view on left-click buy column
@@ -177,23 +243,24 @@ public partial class DomViewModel : ObservableObject
     }
 
     // Mirrors the pinning logic in DomService.BuildLadder so market orders cancel correctly.
-    private static bool IsOrderAtDisplayPrice(OrderState o, decimal price, FastDOM.MarketData.Models.Quote? q, FastDOM.Core.Models.SymbolInfo si)
+    private bool IsOrderAtDisplayPrice(OrderState o, decimal price, FastDOM.MarketData.Models.Quote? q, FastDOM.Core.Models.SymbolInfo si)
     {
+        var step = si.TickSize * Math.Max(1, PriceStepTicks);
         if (o.LimitPrice.HasValue)
         {
-            if (si.RoundToTick(o.LimitPrice.Value) == price)
+            if (DomService.BucketPrice(si.RoundToTick(o.LimitPrice.Value), step) == price)
                 return true;
         }
         if (o.StopPrice.HasValue)
         {
-            if (si.RoundToTick(o.StopPrice.Value) == price)
+            if (DomService.BucketPrice(si.RoundToTick(o.StopPrice.Value), step) == price)
                 return true;
         }
         if (q == null) return false;
         var pin = o.Side == OrderSide.Buy
             ? (q.Ask > 0 ? q.Ask : q.Last)
             : (q.Bid > 0 ? q.Bid : q.Last);
-        return si.RoundToTick(pin) == price;
+        return DomService.BucketPrice(si.RoundToTick(pin), step) == price;
     }
 
     // Returns true if there are working orders on the buy side at this displayed ladder price
@@ -203,12 +270,12 @@ public partial class DomViewModel : ObservableObject
     public bool HasSellOrderAt(decimal price) => HasWorkingOrderAtPrice(OrderSide.Sell, price);
 
     // Called when user drags an order marker to a new price
-    public void OnOrderDragged(OrderState order, decimal newPrice)
+    public void OnOrderDragged(OrderState order, decimal fromPrice, decimal newPrice)
     {
         if (order.Side is not OrderSide.Buy and not OrderSide.Sell)
             return;
 
-        OrderMoveRequested?.Invoke(order, newPrice);
+        OrderMoveRequested?.Invoke(order, fromPrice, newPrice);
     }
 
     public void ReportDragError(string message) => DragError?.Invoke(message);
@@ -228,20 +295,21 @@ public partial class DomViewModel : ObservableObject
         return false;
     }
 
-    private static bool HasMatchingDisplayPrice(
+    private bool HasMatchingDisplayPrice(
         OrderState o,
         decimal targetPrice,
         FastDOM.MarketData.Models.Quote? q,
         FastDOM.Core.Models.SymbolInfo si)
     {
+        var step = si.TickSize * Math.Max(1, PriceStepTicks);
         if (o.LimitPrice.HasValue)
         {
-            if (si.RoundToTick(o.LimitPrice.Value) == targetPrice)
+            if (DomService.BucketPrice(si.RoundToTick(o.LimitPrice.Value), step) == targetPrice)
                 return true;
         }
         if (o.StopPrice.HasValue)
         {
-            if (si.RoundToTick(o.StopPrice.Value) == targetPrice)
+            if (DomService.BucketPrice(si.RoundToTick(o.StopPrice.Value), step) == targetPrice)
                 return true;
         }
 
@@ -249,6 +317,6 @@ public partial class DomViewModel : ObservableObject
         var pin = o.Side == OrderSide.Buy
             ? (q.Ask > 0 ? q.Ask : q.Last)
             : (q.Bid > 0 ? q.Bid : q.Last);
-        return si.RoundToTick(pin) == targetPrice;
+        return DomService.BucketPrice(si.RoundToTick(pin), step) == targetPrice;
     }
 }

@@ -18,26 +18,50 @@ public partial class HotButtonsViewModel : ObservableObject
     private readonly ILogger<HotButtonsViewModel> _logger;
     private readonly OrderService _orderService;
     private readonly IBrokerClient _broker;
+    private readonly AccountSummaryCache _accountCache;
     private readonly IRiskManager _risk;
     private readonly ConfigManager _config;
     private readonly ScriptEngine _scriptEngine;
+    private readonly HashSet<string> _flattenInFlight = new(StringComparer.OrdinalIgnoreCase);
 
     // ObservableCollection so the ItemsControl reacts to individual Add/Remove after save.
     public ObservableCollection<HotButtonConfig> Buttons { get; } = [];
+    public ObservableCollection<HotButtonConfig> EntryButtons { get; } = [];
+    public ObservableCollection<HotButtonConfig> FullWidthButtons { get; } = [];
+    public ObservableCollection<HotButtonConfig> StrategyButtons { get; } = [];
     [ObservableProperty] private decimal _riskAmount = 250m;
+    [ObservableProperty] private decimal _tradeAmount = 10000m;
 
     public void RefreshButtons()
     {
         Buttons.Clear();
+        EntryButtons.Clear();
+        FullWidthButtons.Clear();
+        StrategyButtons.Clear();
+
         foreach (var b in _config.HotButtons.OrderBy(b => b.DisplayOrder))
+        {
             Buttons.Add(b);
+            if (IsFullWidthActionButton(b))
+                FullWidthButtons.Add(b);
+            else if (b.DisplayOrder <= 5)
+                EntryButtons.Add(b);
+            else
+                StrategyButtons.Add(b);
+        }
     }
+
+    private static bool IsFullWidthActionButton(HotButtonConfig button) =>
+        string.Equals(button.Id, "flatten", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(button.Id, "cancel_sym", StringComparison.OrdinalIgnoreCase)
+        || button.Action is HotButtonAction.Flatten or HotButtonAction.CancelSymbol;
 
     public event Action<string>? ToastRequested;
 
     public HotButtonsViewModel(ILogger<HotButtonsViewModel> logger,
         OrderService orderService, IBrokerClient broker,
-        IRiskManager risk, ConfigManager config, ScriptEngine scriptEngine)
+        IRiskManager risk, ConfigManager config, ScriptEngine scriptEngine,
+        AccountSummaryCache accountCache)
     {
         _logger = logger;
         _orderService = orderService;
@@ -45,6 +69,7 @@ public partial class HotButtonsViewModel : ObservableObject
         _risk = risk;
         _config = config;
         _scriptEngine = scriptEngine;
+        _accountCache = accountCache;
         RefreshButtons();
     }
 
@@ -52,15 +77,12 @@ public partial class HotButtonsViewModel : ObservableObject
         int defaultSize, Quote? quote, Position? position)
     {
         if (!btn.IsEnabled) return;
+        AccountSummary? account = null;
+        position = await ResolvePositionForSymbolAsync(accountId, symbol, position);
 
         if (IsSecureButton(btn))
         {
             var livePosition = position;
-            if (livePosition == null)
-            {
-                var summary = await _broker.GetAccountSummaryAsync(accountId);
-                summary.Positions.TryGetValue(symbol, out livePosition);
-            }
             if (livePosition == null || livePosition.IsFlat)
                 return;
         }
@@ -68,6 +90,7 @@ public partial class HotButtonsViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(btn.Script))
         {
             _logger.LogInformation("Hot button script: {Label}", btn.Label);
+            account ??= await _accountCache.GetAsync(accountId);
             var script = ApplyRiskAmountOverride(btn, btn.Script);
             var ctx = new ScriptContext
             {
@@ -76,11 +99,13 @@ public partial class HotButtonsViewModel : ObservableObject
                 DefaultSize = defaultSize,
                 Quote       = quote,
                 Position    = position,
+                Account     = account,
                 Orders      = _orderService,
                 Broker      = _broker,
                 Toast       = msg => ToastRequested?.Invoke(msg),
                 PromptUser  = ShowInputDialogAsync,
             };
+            ctx.Variables["AMOUNT"] = TradeAmount;
             await _scriptEngine.ExecuteAsync(script, ctx);
             return;
         }
@@ -96,7 +121,9 @@ public partial class HotButtonsViewModel : ObservableObject
     {
         if (RiskAmount <= 0) return script;
         var isRiskBuy = string.Equals(btn.Id, "risk_buy_5t", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(btn.Label, "Risk Buy", StringComparison.OrdinalIgnoreCase);
+            || string.Equals(btn.Id, "risk_buy_simple", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(btn.Label, "Risk Buy", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(btn.Label, "Risk Buy Simple", StringComparison.OrdinalIgnoreCase);
         return isRiskBuy
             ? Regex.Replace(script, @"RISK:\$\d+(\.\d+)?", $"RISK:${RiskAmount:0.##}", RegexOptions.IgnoreCase)
             : script;
@@ -163,7 +190,7 @@ public partial class HotButtonsViewModel : ObservableObject
                 await PlaceAsync(accountId, symbol, OrderSide.Sell, qty, OrderType.Limit, quote?.Ask);
                 break;
             case HotButtonAction.Flatten:
-                await FlattenAsync(accountId, symbol, position);
+                await FlattenAsync(accountId, symbol, position, quote);
                 break;
             case HotButtonAction.Reverse:
                 await ReverseAsync(accountId, symbol, position, quote);
@@ -215,12 +242,13 @@ public partial class HotButtonsViewModel : ObservableObject
     {
         if (qty <= 0) { ToastRequested?.Invoke("Qty = 0, order not placed"); return; }
 
-        var account = await _broker.GetAccountSummaryAsync(accountId);
+        var account = await _accountCache.GetAsync(accountId);
         var isExt = IsOutsideRegularHours(DateTime.UtcNow);
         var req = new OrderRequest
         {
             AccountId = accountId,
             Symbol    = symbol,
+            AssetType = SymbolClassifier.AssetTypeFor(symbol),
             Side      = side,
             Quantity  = qty,
             OrderType = orderType,
@@ -243,39 +271,114 @@ public partial class HotButtonsViewModel : ObservableObject
         return t < new TimeSpan(9, 30, 0) || t >= new TimeSpan(16, 0, 0);
     }
 
-    private async Task FlattenAsync(string accountId, string symbol, Position? position)
+    private async Task FlattenAsync(string accountId, string symbol, Position? position, Quote? quote)
     {
-        if (position == null)
+        var key = $"{accountId}|{symbol.Trim().ToUpperInvariant()}";
+        lock (_flattenInFlight)
         {
-            var summary = await _broker.GetAccountSummaryAsync(accountId);
-            summary.Positions.TryGetValue(symbol, out position);
+            if (!_flattenInFlight.Add(key))
+            {
+                ToastRequested?.Invoke($"Flatten already pending for {symbol}");
+                return;
+            }
         }
-        if (position == null || position.IsFlat)
+
+        var releaseInBackground = false;
+        try
         {
-            ToastRequested?.Invoke("No position to flatten");
-            return;
+            position = await ResolvePositionForSymbolAsync(accountId, symbol, position);
+            if (position == null || position.IsFlat)
+            {
+                ToastRequested?.Invoke($"No {symbol} position to flatten");
+                return;
+            }
+            var side = position.Side == PositionSide.Long ? OrderSide.Sell : OrderSide.Buy;
+            var (orderType, price) = ResolveFlattenOrder(side, quote);
+            if (orderType == OrderType.Limit && price == null)
+            {
+                ToastRequested?.Invoke($"No {(side == OrderSide.Sell ? "bid" : "ask")} quote for after-hours flatten");
+                return;
+            }
+            await _orderService.CancelAllForSymbolFastAsync(accountId, position.Symbol);
+            await PlaceAsync(accountId, position.Symbol, side, Math.Abs(position.Quantity), orderType, price);
+
+            releaseInBackground = true;
+            _ = RefreshAfterFlattenAsync(accountId, symbol, key);
         }
-        var side = position.Side == PositionSide.Long ? OrderSide.Sell : OrderSide.Buy;
-        await _orderService.CancelAllForSymbolAsync(accountId, symbol);
-        await PlaceAsync(accountId, symbol, side, Math.Abs(position.Quantity), OrderType.Market, null);
+        finally
+        {
+            if (!releaseInBackground)
+            {
+                lock (_flattenInFlight)
+                    _flattenInFlight.Remove(key);
+            }
+        }
+    }
+
+    private async Task RefreshAfterFlattenAsync(string accountId, string symbol, string flattenKey)
+    {
+        try
+        {
+            await Task.Delay(2500);
+            _accountCache.Invalidate(accountId);
+            await _orderService.SyncOrdersAsync(accountId);
+            await _accountCache.RefreshAsync(accountId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Post-flatten account refresh failed for {Account}/{Symbol}", accountId, symbol);
+        }
+        finally
+        {
+            lock (_flattenInFlight)
+                _flattenInFlight.Remove(flattenKey);
+        }
+    }
+
+    private static (OrderType OrderType, decimal? Price) ResolveFlattenOrder(OrderSide side, Quote? quote)
+    {
+        if (!IsOutsideRegularHours(DateTime.UtcNow))
+            return (OrderType.Market, null);
+
+        decimal? price = side == OrderSide.Sell
+            ? quote?.Bid > 0 ? quote.Bid : null
+            : quote?.Ask > 0 ? quote.Ask : null;
+
+        return (OrderType.Limit, price);
     }
 
     private async Task ReverseAsync(string accountId, string symbol, Position? position, Quote? quote)
     {
-        if (position == null)
-        {
-            var summary = await _broker.GetAccountSummaryAsync(accountId);
-            summary.Positions.TryGetValue(symbol, out position);
-        }
+        position = await ResolvePositionForSymbolAsync(accountId, symbol, position);
         if (position == null || position.IsFlat)
         {
-            ToastRequested?.Invoke("No position to reverse");
+            ToastRequested?.Invoke($"No {symbol} position to reverse");
             return;
         }
         var side = position.Side == PositionSide.Long ? OrderSide.Sell : OrderSide.Buy;
         var qty = Math.Abs(position.Quantity) * 2;
-        await _orderService.CancelAllForSymbolAsync(accountId, symbol);
-        await PlaceAsync(accountId, symbol, side, qty, OrderType.Market, null);
+        await _orderService.CancelAllForSymbolAsync(accountId, position.Symbol);
+        await PlaceAsync(accountId, position.Symbol, side, qty, OrderType.Market, null);
+    }
+
+    private async Task<Position?> ResolvePositionForSymbolAsync(string accountId, string symbol, Position? candidate)
+    {
+        var normalized = symbol.Trim().ToUpperInvariant();
+        if (candidate != null &&
+            string.Equals(candidate.Symbol, normalized, StringComparison.OrdinalIgnoreCase))
+            return candidate;
+
+        if (candidate != null)
+        {
+            _logger.LogWarning(
+                "Ignoring stale position {PositionSymbol} while executing action for {Symbol}",
+                candidate.Symbol,
+                normalized);
+        }
+
+        var summary = await _accountCache.GetAsync(accountId);
+        summary.Positions.TryGetValue(normalized, out var position);
+        return position;
     }
 
     private static int ResolveQuantity(QuantityRule rule, int defaultSize, Position? pos, Quote? quote)

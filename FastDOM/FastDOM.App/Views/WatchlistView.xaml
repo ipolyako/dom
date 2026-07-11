@@ -43,9 +43,9 @@
                               Background="Transparent">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="50"/>
-                                <ColumnDefinition Width="48"/>
-                                <ColumnDefinition Width="18"/>
+                                <ColumnDefinition Width="44"/>
+                                <ColumnDefinition Width="36"/>
+                                <ColumnDefinition Width="14"/>
                             </Grid.ColumnDefinitions>
 
                             <!-- Row click → select symbol -->
@@ -59,6 +59,7 @@
                             <TextBlock Grid.Column="0" Text="{Binding DisplaySymbol}"
                                        FontWeight="Bold" FontSize="11"
                                        Padding="6,0" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
                                        ToolTip="{Binding Symbol}"/>
 
                             <TextBlock Grid.Column="1" Text="{Binding LastDisplay}"
@@ -72,7 +73,7 @@
                                        Foreground="{Binding Change,
                                                    Converter={StaticResource PnLBrushConverter}}"/>
 
-                            <Button Grid.Column="3" Content="×" Width="16" Height="16"
+                            <Button Grid.Column="3" Content="×" Width="14" Height="16"
                                     FontSize="11" Padding="0"
                                     Background="Transparent" BorderThickness="0"
                                     Foreground="{StaticResource SecondaryForeBrush}"

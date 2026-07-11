@@ -19,7 +19,6 @@ public class DomRowBrushConverter : IMultiValueConverter
         bool isPos = values.Length > 3 && values[3] is true;
 
         if (isPos) return new SolidColorBrush(Color.FromArgb(75, 128, 0, 200));
-        if (isLast) return new SolidColorBrush(Color.FromArgb(95, 255, 213, 79));
         return Brushes.Transparent;
     }
 

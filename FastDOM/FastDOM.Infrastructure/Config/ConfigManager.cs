@@ -202,8 +202,6 @@ public class ConfigManager
                 qty: new QuantityRule { Type = QuantityRuleType.PercentOfPosition, PercentOfPosition = 25 }),
             Btn("sell_50",    "Sell 50%",     "#C62828", HotButtonAction.SellPercent,
                 qty: new QuantityRule { Type = QuantityRuleType.PercentOfPosition, PercentOfPosition = 50 }),
-            Btn("sell_100",   "Sell 100%",    "#B71C1C", HotButtonAction.SellPercent,
-                qty: new QuantityRule { Type = QuantityRuleType.PercentOfPosition, PercentOfPosition = 100 }),
             Btn("stop_be",    "Stop BE",      "#455A64", HotButtonAction.MoveStopToBreakeven),
         ];
     }

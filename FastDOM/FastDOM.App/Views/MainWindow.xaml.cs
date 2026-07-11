@@ -1,6 +1,9 @@
+using System.Diagnostics;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using FastDOM.App.Services;
 using FastDOM.App.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,8 +24,13 @@ public partial class MainWindow : Window
     private readonly ConfigManager _config;
     private readonly IBrokerClient _broker;
     private readonly DomService _domService;
+    private readonly AccountSummaryCache _accountCache;
     private readonly IServiceProvider _services;
+    private readonly HashSet<string> _ordersBeingMoved = [];
     private bool _killSwitchPending;
+    private Thread? _bookmapThread;
+    private Dispatcher? _bookmapDispatcher;
+    private BookmapWindow? _bookmapWindow;
 
     public MainWindow(
         MainViewModel vm,
@@ -32,7 +40,8 @@ public partial class MainWindow : Window
         ConfigManager config,
         IBrokerClient broker,
         DomService domService,
-        IServiceProvider services)
+        IServiceProvider services,
+        AccountSummaryCache accountCache)
     {
         InitializeComponent();
         DataContext = _vm = vm;
@@ -43,6 +52,7 @@ public partial class MainWindow : Window
         _broker = broker;
         _domService = domService;
         _services = services;
+        _accountCache = accountCache;
 
         // Auto-scroll activity log — defer to Background priority so the ItemsControl
         // finishes processing CollectionChanged before ScrollIntoView triggers layout.
@@ -91,7 +101,7 @@ public partial class MainWindow : Window
             e.Handled = true;
             _ = Task.Run(async () =>
             {
-                var summary = await _broker.GetAccountSummaryAsync(_vm.SelectedAccountId);
+                var summary = await _accountCache.GetAsync(_vm.SelectedAccountId);
                 summary.Positions.TryGetValue(_vm.SelectedSymbol, out var pos);
                 await _vm.HotButtonsViewModel.ExecuteButtonAsync(
                     btn, _vm.SelectedSymbol, _vm.SelectedAccountId,
@@ -164,10 +174,11 @@ public partial class MainWindow : Window
 
     private async void OnOrderTicketQuickAction(object sender, QuickActionEventArgs e)
     {
-        var summary = await _broker.GetAccountSummaryAsync(_vm.SelectedAccountId);
-        summary.Positions.TryGetValue(_vm.SelectedSymbol, out var pos);
+        var symbol = ActiveDomSymbol();
+        var summary = await _accountCache.GetAsync(_vm.SelectedAccountId);
+        summary.Positions.TryGetValue(symbol, out var pos);
         await _vm.HotButtonsViewModel.ExecuteActionAsync(
-            e.Action, _vm.SelectedSymbol, _vm.SelectedAccountId, _vm.ShareSize, _domService.CurrentQuote, pos);
+            e.Action, symbol, _vm.SelectedAccountId, _vm.ShareSize, _domService.CurrentQuote, pos);
     }
 
     private async void KillSwitch_Click(object sender, RoutedEventArgs e)
@@ -189,19 +200,21 @@ public partial class MainWindow : Window
 
         _killSwitchPending = false;
         KillSwitchButton.Content = "KILL SWITCH ACTIVATED";
+        var symbol = ActiveDomSymbol();
 
-        await _audit.LogKillSwitchAsync(_vm.SelectedAccountId, _vm.SelectedSymbol, "CancelAll+Flatten");
+        await _audit.LogKillSwitchAsync(_vm.SelectedAccountId, symbol, "CancelAll+Flatten");
 
-        await _orderService.CancelAllForSymbolAsync(_vm.SelectedAccountId, _vm.SelectedSymbol);
+        await _orderService.CancelAllForSymbolFastAsync(_vm.SelectedAccountId, symbol);
 
-        var summary = await _broker.GetAccountSummaryAsync(_vm.SelectedAccountId);
-        if (summary.Positions.TryGetValue(_vm.SelectedSymbol, out var pos) && !pos.IsFlat)
+        var summary = await _accountCache.GetAsync(_vm.SelectedAccountId);
+        if (summary.Positions.TryGetValue(symbol, out var pos) && !pos.IsFlat)
         {
             var side = pos.Side == PositionSide.Long ? OrderSide.Sell : OrderSide.Buy;
             var req = new OrderRequest
             {
                 AccountId = _vm.SelectedAccountId,
-                Symbol    = _vm.SelectedSymbol,
+                Symbol    = symbol,
+                AssetType = SymbolClassifier.AssetTypeFor(symbol),
                 Side      = side,
                 Quantity  = Math.Abs(pos.Quantity),
                 OrderType = OrderType.Market,
@@ -216,6 +229,7 @@ public partial class MainWindow : Window
 
     private async void OnDomPriceLevelClickedInternal(decimal price, OrderSide side, OrderType orderType)
     {
+        var symbol = ActiveDomSymbol();
         // Populate ticket for visibility
         _vm.OrderTicketViewModel.PopulateFromDomClick(price, side, orderType);
 
@@ -223,7 +237,8 @@ public partial class MainWindow : Window
         var req = new OrderRequest
         {
             AccountId   = _vm.SelectedAccountId,
-            Symbol      = _vm.SelectedSymbol,
+            Symbol      = symbol,
+            AssetType   = SymbolClassifier.AssetTypeFor(symbol),
             Side        = side,
             Quantity    = _vm.ShareSize,
             OrderType   = orderType,
@@ -233,26 +248,44 @@ public partial class MainWindow : Window
             Source      = OrderSource.DomClick
         };
 
-        var account = await _broker.GetAccountSummaryAsync(_vm.SelectedAccountId);
+        var account = await _accountCache.GetAsync(_vm.SelectedAccountId);
         var (success, msg) = await _orderService.SubmitOrderAsync(req, account, _domService.CurrentQuote);
         _vm.LastToast = success
-            ? $"{side} {_vm.ShareSize} {_vm.SelectedSymbol} @ {price:F2} SENT"
+            ? $"{side} {_vm.ShareSize} {symbol} @ {price:F2} SENT"
             : $"REJECTED: {msg}";
     }
 
-    private async void OnOrderMoveRequested(OrderState order, decimal newPrice)
+    private async void OnOrderMoveRequested(OrderState order, decimal fromPrice, decimal newPrice)
     {
+        var uiSw = Stopwatch.StartNew();
         if (string.IsNullOrEmpty(order.BrokerOrderId)) return;
+        // Serialize by broker identity, not by source/target prices. A second
+        // drag of the same order must not overlap while Schwab is replacing it
+        // and assigning the successor order id.
+        var moveKey = BuildMoveKey(order);
+        if (!_ordersBeingMoved.Add(moveKey))
+            return;
+
+        var moveStop = IsSamePrice(order.StopPrice, fromPrice)
+                       && (!IsSamePrice(order.LimitPrice, fromPrice)
+                           || Math.Abs(newPrice - order.StopPrice!.Value) <= Math.Abs(newPrice - (order.LimitPrice ?? newPrice)));
         var replacement = new OrderReplace
         {
             OriginalClientOrderId = order.ClientOrderId,
             BrokerOrderId = order.BrokerOrderId,
-            NewLimitPrice = newPrice,
+            NewLimitPrice = moveStop ? null : newPrice,
+            NewStopPrice = moveStop ? newPrice : null,
             Source = OrderSource.DomClick
         };
         try
         {
+            Serilog.Log.Information(
+                "[LATENCY] DOM move intent order={OrderId} symbol={Symbol} from={FromPrice:F2} to={NewPrice:F2} moveStop={MoveStop} elapsedMs={ElapsedMs}",
+                order.BrokerOrderId, order.Symbol, fromPrice, newPrice, moveStop, uiSw.ElapsedMilliseconds);
             var (ok, msg) = await _orderService.ReplaceOrderAsync(_vm.SelectedAccountId, replacement);
+            Serilog.Log.Information(
+                "[LATENCY] DOM move completed order={OrderId} symbol={Symbol} ok={Ok} message={Message} totalMs={ElapsedMs}",
+                order.BrokerOrderId, order.Symbol, ok, msg, uiSw.ElapsedMilliseconds);
             _vm.LastToast = ok ? $"Order moved to {newPrice:F2}" : $"Move failed: {msg}";
         }
         catch (Exception ex)
@@ -261,7 +294,17 @@ public partial class MainWindow : Window
             // modal "FastDOM Error" dialog. Surface it as a toast instead.
             _vm.LastToast = $"Move failed: {ex.GetType().Name} — {ex.Message}";
         }
+        finally
+        {
+            _ordersBeingMoved.Remove(moveKey);
+        }
     }
+
+    private static bool IsSamePrice(decimal? a, decimal b) =>
+        a.HasValue && Math.Round(a.Value, 2, MidpointRounding.AwayFromZero) == Math.Round(b, 2, MidpointRounding.AwayFromZero);
+
+    private static string BuildMoveKey(OrderState order) =>
+        order.BrokerOrderId ?? order.ClientOrderId;
 
     // Wired from XAML — DOM price level click
     private void OnDomPriceLevelClicked(object sender, RoutedEventArgs e)
@@ -276,16 +319,22 @@ public partial class MainWindow : Window
 
     private async void OnHotButtonExecuted(object sender, HotButtonExecutedEventArgs e)
     {
-        var summary = await _broker.GetAccountSummaryAsync(_vm.SelectedAccountId);
-        summary.Positions.TryGetValue(_vm.SelectedSymbol, out var pos);
+        var symbol = ActiveDomSymbol();
+        var summary = await _accountCache.GetAsync(_vm.SelectedAccountId);
+        summary.Positions.TryGetValue(symbol, out var pos);
         await _vm.HotButtonsViewModel.ExecuteButtonAsync(
             e.Button,
-            _vm.SelectedSymbol,
+            symbol,
             _vm.SelectedAccountId,
             _vm.ShareSize,
             _domService.CurrentQuote,
             pos);
     }
+
+    private string ActiveDomSymbol() =>
+        string.IsNullOrWhiteSpace(_vm.DomViewModel.Symbol)
+            ? _vm.SelectedSymbol.Trim().ToUpperInvariant()
+            : _vm.DomViewModel.Symbol.Trim().ToUpperInvariant();
 
     private void OrdersButton_Click(object sender, RoutedEventArgs e)
     {
@@ -296,6 +345,45 @@ public partial class MainWindow : Window
             .ToList();
         var dlg = new OrdersWindow(orders, _orderService, _vm.SelectedAccountId) { Owner = this };
         dlg.ShowDialog();
+    }
+
+    private void BookmapButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_bookmapDispatcher != null && _bookmapWindow != null)
+        {
+            _bookmapDispatcher.BeginInvoke(() =>
+            {
+                if (_bookmapWindow.WindowState == WindowState.Minimized)
+                    _bookmapWindow.WindowState = WindowState.Normal;
+                _bookmapWindow.Activate();
+            });
+            return;
+        }
+
+        _bookmapThread = new Thread(() =>
+        {
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+            _bookmapDispatcher = Dispatcher.CurrentDispatcher;
+
+            var vm = _services.GetRequiredService<DepthMapViewModel>();
+            var window = new BookmapWindow(vm);
+            _bookmapWindow = window;
+            window.Closed += (_, _) =>
+            {
+                _bookmapWindow = null;
+                _bookmapDispatcher = null;
+                Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
+            };
+            window.Show();
+
+            Dispatcher.Run();
+        })
+        {
+            Name = "FastDOM Bookmap UI",
+            IsBackground = true
+        };
+        _bookmapThread.SetApartmentState(ApartmentState.STA);
+        _bookmapThread.Start();
     }
 
     private void OpenOptionsChain_Click(object sender, RoutedEventArgs e)
@@ -309,7 +397,20 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        CloseBookmapWindow();
         _config.SaveAll();
         base.OnClosed(e);
+    }
+
+    private void CloseBookmapWindow()
+    {
+        var dispatcher = _bookmapDispatcher;
+        if (dispatcher == null) return;
+
+        dispatcher.BeginInvoke(() =>
+        {
+            _bookmapWindow?.Close();
+            Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
+        });
     }
 }

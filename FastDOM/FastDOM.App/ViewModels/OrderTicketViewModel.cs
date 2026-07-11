@@ -13,6 +13,7 @@ public partial class OrderTicketViewModel : ObservableObject
     private readonly ILogger<OrderTicketViewModel> _logger;
     private readonly OrderService _orderService;
     private readonly IBrokerClient _broker;
+    private readonly AccountSummaryCache _accountCache;
 
     [ObservableProperty] private string _symbol = "";
     [ObservableProperty] private string _accountId = "";
@@ -36,11 +37,12 @@ public partial class OrderTicketViewModel : ObservableObject
     public List<TimeInForce> TifOptions { get; } = [TimeInForce.Day, TimeInForce.GTC, TimeInForce.IOC];
 
     public OrderTicketViewModel(ILogger<OrderTicketViewModel> logger,
-        OrderService orderService, IBrokerClient broker)
+        OrderService orderService, IBrokerClient broker, AccountSummaryCache accountCache)
     {
         _logger = logger;
         _orderService = orderService;
         _broker = broker;
+        _accountCache = accountCache;
         // Default the Ext flag to true when the app opens outside regular trading hours
         // so pre/post-market clicks don't get silently rejected.
         _extendedHours = IsOutsideRegularHours(DateTime.UtcNow);
@@ -58,12 +60,17 @@ public partial class OrderTicketViewModel : ObservableObject
 
     partial void OnOrderTypeChanged(OrderType value)
     {
-        if (value == OrderType.StopMarket)
+        if (value == OrderType.Market)
+        {
+            LimitPrice = null;
+            StopPrice = null;
+        }
+        else if (value == OrderType.StopMarket)
         {
             LimitPrice = null;
             StopPrice ??= DefaultStopPrice();
         }
-        else if (LimitPrice == null && LastPrice.HasValue && NeedsLimitPrice(value))
+        else if (LastPrice.HasValue && NeedsLimitPrice(value))
         {
             LimitPrice = LastPrice;
         }
@@ -79,6 +86,9 @@ public partial class OrderTicketViewModel : ObservableObject
     {
         if (OrderType == OrderType.StopMarket && !StopPrice.HasValue)
             StopPrice = DefaultStopPrice();
+
+        if (NeedsLimitPrice(OrderType) && !LimitPrice.HasValue && value.HasValue)
+            LimitPrice = value;
     }
 
     partial void OnStopPriceChanged(decimal? value)
@@ -149,11 +159,12 @@ public partial class OrderTicketViewModel : ObservableObject
     private async Task SubmitAsync()
     {
         StatusMessage = "Submitting...";
-        var account = await _broker.GetAccountSummaryAsync(AccountId);
+        var account = await _accountCache.GetAsync(AccountId);
         var req = new OrderRequest
         {
             AccountId = AccountId,
             Symbol    = Symbol,
+            AssetType = SymbolClassifier.AssetTypeFor(Symbol),
             Side      = Side,
             Quantity  = Quantity,
             OrderType = OrderType,

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -155,6 +156,7 @@ public class SchwabBrokerClient : IBrokerClient
 
     public async Task<OrderResult> PlaceOrderAsync(OrderRequest request, CancellationToken ct = default)
     {
+        var totalSw = Stopwatch.StartNew();
         var token = await _auth.GetAccessTokenAsync(ct);
         if (string.IsNullOrEmpty(token))
             return OrderResult.Fail("Not authenticated");
@@ -170,7 +172,11 @@ public class SchwabBrokerClient : IBrokerClient
 
         try
         {
+            var httpSw = Stopwatch.StartNew();
             var resp = await _http.SendAsync(req, ct);
+            _logger.LogInformation(
+                "[LATENCY] Schwab POST order http account={Account} symbol={Symbol} status={Status} httpMs={HttpMs} totalMs={TotalMs}",
+                request.AccountId, request.Symbol, (int)resp.StatusCode, httpSw.ElapsedMilliseconds, totalSw.ElapsedMilliseconds);
             if (resp.StatusCode == System.Net.HttpStatusCode.Created)
             {
                 // Order ID is in the Location header
@@ -193,6 +199,7 @@ public class SchwabBrokerClient : IBrokerClient
 
     public async Task<OrderResult> CancelOrderAsync(string accountId, string brokerOrderId, CancellationToken ct = default)
     {
+        var totalSw = Stopwatch.StartNew();
         var token = await _auth.GetAccessTokenAsync(ct);
         if (string.IsNullOrEmpty(token)) return OrderResult.Fail("Not authenticated");
 
@@ -203,7 +210,11 @@ public class SchwabBrokerClient : IBrokerClient
 
         try
         {
+            var httpSw = Stopwatch.StartNew();
             var resp = await _http.SendAsync(req, ct);
+            _logger.LogInformation(
+                "[LATENCY] Schwab DELETE order http account={Account} order={OrderId} status={Status} httpMs={HttpMs} totalMs={TotalMs}",
+                accountId, brokerOrderId, (int)resp.StatusCode, httpSw.ElapsedMilliseconds, totalSw.ElapsedMilliseconds);
             if (resp.IsSuccessStatusCode)
                 return OrderResult.Ok(brokerOrderId);
 
@@ -228,19 +239,19 @@ public class SchwabBrokerClient : IBrokerClient
 
     public async Task<OrderResult> ReplaceOrderAsync(string accountId, OrderReplace replacement, CancellationToken ct = default)
     {
+        var totalSw = Stopwatch.StartNew();
         var token = await _auth.GetAccessTokenAsync(ct);
         if (string.IsNullOrEmpty(token)) return OrderResult.Fail("Not authenticated");
 
-        // 1. Try PUT — the normal case.
-        var (putResult, putStatus) = await TryPutReplaceAsync(accountId, replacement, token, ct);
-        if (putResult.Success) return putResult;
-        if (putStatus == 401 || putStatus == 403)
-            return putResult;
-
-        // Schwab expects a full replacement order on some accounts/order states.
-        // If the minimal price-only PUT is rejected, retry with the original
-        // order payload plus the requested price/quantity deltas.
+        // Schwab requires a full replacement payload for these equity orders.
+        // A price-only PUT was consistently rejected with HTTP 400 and added a
+        // full network round trip before this same full PUT. Fetch the current
+        // broker payload first so external TOS changes are still reconciled,
+        // then perform one atomic replacement request.
         var (fullPutResult, fullPutStatus) = await TryFullPutReplaceAsync(accountId, replacement, token, ct);
+        _logger.LogInformation(
+            "[LATENCY] Schwab replace full-put account={Account} order={OrderId} success={Success} status={Status} elapsedMs={ElapsedMs}",
+            accountId, replacement.BrokerOrderId, fullPutResult.Success, fullPutStatus, totalSw.ElapsedMilliseconds);
         if (fullPutResult.Success) return fullPutResult;
 
         // 2. Fall back to cancel + place-new for any state error where a
@@ -253,59 +264,30 @@ public class SchwabBrokerClient : IBrokerClient
             return fullPutResult;
 
         _logger.LogInformation(
-            "Schwab PUT replace failed (minimal HTTP {MinimalStatus}, full HTTP {FullStatus}); falling back to cancel+place",
-            putStatus, fullPutStatus);
-        return await CancelAndPlaceReplacementAsync(accountId, replacement, token, ct);
-    }
-
-    private async Task<(OrderResult result, int status)> TryPutReplaceAsync(
-        string accountId, OrderReplace replacement, string token, CancellationToken ct)
-    {
-        var hash = GetHash(accountId);
-        var body = new Dictionary<string, object>();
-        if (replacement.NewLimitPrice.HasValue) body["price"] = replacement.NewLimitPrice.Value.ToString("F2");
-        if (replacement.NewStopPrice.HasValue)  body["stopPrice"] = replacement.NewStopPrice.Value.ToString("F2");
-        if (replacement.NewQuantity.HasValue)
-        {
-            body["orderLegCollection"] = new[] {
-                new Dictionary<string, object> { ["quantity"] = replacement.NewQuantity.Value }
-            };
-        }
-        var json = JsonSerializer.Serialize(body);
-
-        using var req = new HttpRequestMessage(HttpMethod.Put,
-            $"{_config.TraderApiBase}/accounts/{hash}/orders/{replacement.BrokerOrderId}");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        req.Content = new StringContent(json, Encoding.UTF8, "application/json");
-
-        try
-        {
-            var resp = await _http.SendAsync(req, ct);
-            if (resp.IsSuccessStatusCode)
-            {
-                // 201 Created with Location: .../orders/{NEW_ID}. Old order becomes REPLACED.
-                var newId = ExtractOrderIdFromLocation(resp.Headers.Location) ?? replacement.BrokerOrderId;
-                return (OrderResult.Ok(newId), (int)resp.StatusCode);
-            }
-            var responseBody = await resp.Content.ReadAsStringAsync(ct);
-            return (OrderResult.Fail(responseBody, (int)resp.StatusCode), (int)resp.StatusCode);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Schwab TryPutReplaceAsync exception");
-            return (OrderResult.Fail(ex.Message), 0);
-        }
+            "Schwab full PUT replace failed (HTTP {FullStatus}); falling back to cancel+place",
+            fullPutStatus);
+        var result = await CancelAndPlaceReplacementAsync(accountId, replacement, token, ct);
+        _logger.LogInformation(
+            "[LATENCY] Schwab replace completed-via-fallback account={Account} order={OrderId} success={Success} newOrder={NewOrderId} totalMs={TotalMs}",
+            accountId, replacement.BrokerOrderId, result.Success, result.BrokerOrderId, totalSw.ElapsedMilliseconds);
+        return result;
     }
 
     private async Task<(OrderResult result, int status)> TryFullPutReplaceAsync(
         string accountId, OrderReplace replacement, string token, CancellationToken ct)
     {
         var hash = GetHash(accountId);
+        var getSw = Stopwatch.StartNew();
         var (orig, error, status) = await GetOriginalOrderAsync(hash, replacement.BrokerOrderId, token, ct);
+        _logger.LogInformation(
+            "[LATENCY] Schwab full-put GET original account={Account} order={OrderId} status={Status} getMs={GetMs}",
+            accountId, replacement.BrokerOrderId, status, getSw.ElapsedMilliseconds);
         if (orig == null)
             return (OrderResult.Fail($"Full PUT replace: GET failed {status} — {error}", status), status);
 
         var placeBody = BuildReplacementPayload(orig.Value, replacement);
+        if (HasInvalidOcoPayload(placeBody))
+            return (OrderResult.Fail("Full PUT replace: OCO changed externally or has fewer than 2 active children; refresh required", 409), 409);
         var json = JsonSerializer.Serialize(placeBody);
 
         using var req = new HttpRequestMessage(HttpMethod.Put,
@@ -315,7 +297,11 @@ public class SchwabBrokerClient : IBrokerClient
 
         try
         {
+            var httpSw = Stopwatch.StartNew();
             var resp = await _http.SendAsync(req, ct);
+            _logger.LogInformation(
+                "[LATENCY] Schwab PUT full http account={Account} order={OrderId} status={Status} httpMs={HttpMs}",
+                accountId, replacement.BrokerOrderId, (int)resp.StatusCode, httpSw.ElapsedMilliseconds);
             if (resp.IsSuccessStatusCode)
             {
                 var newId = ExtractOrderIdFromLocation(resp.Headers.Location) ?? replacement.BrokerOrderId;
@@ -339,22 +325,33 @@ public class SchwabBrokerClient : IBrokerClient
     private async Task<OrderResult> CancelAndPlaceReplacementAsync(
         string accountId, OrderReplace replacement, string token, CancellationToken ct)
     {
+        var totalSw = Stopwatch.StartNew();
         var hash = GetHash(accountId);
 
         // 1. GET original.
+        var getSw = Stopwatch.StartNew();
         var (orig, error, status) = await GetOriginalOrderAsync(hash, replacement.BrokerOrderId, token, ct);
+        _logger.LogInformation(
+            "[LATENCY] Schwab fallback GET original account={Account} order={OrderId} status={Status} getMs={GetMs}",
+            accountId, replacement.BrokerOrderId, status, getSw.ElapsedMilliseconds);
         if (orig == null)
             return OrderResult.Fail($"Cancel+place fallback: GET failed {status} — {error}", status);
 
         // 2. Build new order payload from original + replacement deltas.
         var placeBody = BuildReplacementPayload(orig.Value, replacement);
+        if (HasInvalidOcoPayload(placeBody))
+            return OrderResult.Fail("Cancel+place fallback: OCO changed externally or has fewer than 2 active children; refresh required", 409);
 
         // 3. DELETE old. Treat 409/422 (already terminal) as "out of the way".
         using var delReq = new HttpRequestMessage(HttpMethod.Delete,
             $"{_config.TraderApiBase}/accounts/{hash}/orders/{replacement.BrokerOrderId}");
         delReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var deleteSw = Stopwatch.StartNew();
         var delResp = await _http.SendAsync(delReq, ct);
         var delCode = (int)delResp.StatusCode;
+        _logger.LogInformation(
+            "[LATENCY] Schwab fallback DELETE account={Account} order={OrderId} status={Status} deleteMs={DeleteMs}",
+            accountId, replacement.BrokerOrderId, delCode, deleteSw.ElapsedMilliseconds);
         if (!delResp.IsSuccessStatusCode && delCode != 409 && delCode != 422)
         {
             var b = await delResp.Content.ReadAsStringAsync(ct);
@@ -368,8 +365,12 @@ public class SchwabBrokerClient : IBrokerClient
             $"{_config.TraderApiBase}/accounts/{hash}/orders");
         postReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         postReq.Content = new StringContent(placeJson, Encoding.UTF8, "application/json");
+        var postSw = Stopwatch.StartNew();
         var postResp = await _http.SendAsync(postReq, ct);
         var postCode = (int)postResp.StatusCode;
+        _logger.LogInformation(
+            "[LATENCY] Schwab fallback POST replacement account={Account} oldOrder={OrderId} status={Status} postMs={PostMs} totalMs={TotalMs}",
+            accountId, replacement.BrokerOrderId, postCode, postSw.ElapsedMilliseconds, totalSw.ElapsedMilliseconds);
         if (postResp.StatusCode == System.Net.HttpStatusCode.Created)
         {
             var newId = ExtractOrderIdFromLocation(postResp.Headers.Location) ?? "";
@@ -409,13 +410,24 @@ public class SchwabBrokerClient : IBrokerClient
         if (orig.TryGetProperty("complexOrderStrategyType", out var costEl) && costEl.ValueKind == JsonValueKind.String)
             placeBody["complexOrderStrategyType"] = costEl.GetString()!;
 
-        var priceStr = replacement.NewLimitPrice?.ToString("F2")
-                       ?? (orig.TryGetProperty("price", out var pEl) && pEl.ValueKind != JsonValueKind.Null
+        if (orig.TryGetProperty("childOrderStrategies", out var childrenEl) && childrenEl.ValueKind == JsonValueKind.Array)
+        {
+            var children = new List<Dictionary<string, object>>();
+            foreach (var child in childrenEl.EnumerateArray())
+                children.Add(BuildReplacementPayload(child, replacement));
+            placeBody["childOrderStrategies"] = children;
+            return placeBody;
+        }
+
+        var priceStr = IsLimitLike(orig) && replacement.NewLimitPrice.HasValue
+                       ? replacement.NewLimitPrice.Value.ToString("F2")
+                       : (orig.TryGetProperty("price", out var pEl) && pEl.ValueKind != JsonValueKind.Null
                            ? pEl.ToString() : null);
         if (priceStr != null) placeBody["price"] = priceStr;
 
-        var stopStr = replacement.NewStopPrice?.ToString("F2")
-                      ?? (orig.TryGetProperty("stopPrice", out var spEl) && spEl.ValueKind != JsonValueKind.Null
+        var stopStr = IsStopLike(orig) && replacement.NewStopPrice.HasValue
+                      ? replacement.NewStopPrice.Value.ToString("F2")
+                      : (orig.TryGetProperty("stopPrice", out var spEl) && spEl.ValueKind != JsonValueKind.Null
                           ? spEl.ToString() : null);
         if (stopStr != null) placeBody["stopPrice"] = stopStr;
 
@@ -446,6 +458,37 @@ public class SchwabBrokerClient : IBrokerClient
 
         return placeBody;
     }
+
+    private static bool HasInvalidOcoPayload(Dictionary<string, object> payload)
+    {
+        if (payload.TryGetValue("childOrderStrategies", out var childrenObj) &&
+            childrenObj is List<Dictionary<string, object>> children)
+        {
+            if (payload.TryGetValue("orderStrategyType", out var strategyObj) &&
+                strategyObj is string strategy &&
+                string.Equals(strategy, "OCO", StringComparison.OrdinalIgnoreCase) &&
+                children.Count != 2)
+                return true;
+
+            foreach (var child in children)
+            {
+                if (HasInvalidOcoPayload(child))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsLimitLike(JsonElement order) =>
+        order.TryGetProperty("orderType", out var otEl)
+        && otEl.ValueKind == JsonValueKind.String
+        && otEl.GetString()?.Contains("LIMIT", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static bool IsStopLike(JsonElement order) =>
+        order.TryGetProperty("orderType", out var otEl)
+        && otEl.ValueKind == JsonValueKind.String
+        && otEl.GetString()?.Contains("STOP", StringComparison.OrdinalIgnoreCase) == true;
 
     private static int TryGetQuantityValue(JsonElement value)
     {
@@ -486,6 +529,9 @@ public class SchwabBrokerClient : IBrokerClient
 
         try
         {
+            if (IsOcoStrategy(resp.Value))
+                return ParseOcoOrder(accountId, resp.Value);
+
             return ParseSingleOrder(accountId, resp.Value);
         }
         catch (Exception ex)
@@ -497,13 +543,18 @@ public class SchwabBrokerClient : IBrokerClient
 
     public async Task<IReadOnlyList<OrderState>> SyncOrdersAsync(string accountId, CancellationToken ct = default)
     {
+        var sw = Stopwatch.StartNew();
         var hash = GetHash(accountId);
         // Fetch last 7 days of orders
         var from = DateTime.UtcNow.AddDays(-7).ToString("yyyy-MM-ddTHH:mm:ssZ");
         var to = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
         var resp = await GetAsync($"/accounts/{hash}/orders?fromEnteredTime={from}&toEnteredTime={to}", ct);
         if (resp == null) return [];
-        return ParseOrders(accountId, resp.Value);
+        var orders = ParseOrders(accountId, resp.Value);
+        _logger.LogInformation(
+            "[LATENCY] Schwab SyncOrders account={Account} count={Count} totalMs={TotalMs}",
+            accountId, orders.Count, sw.ElapsedMilliseconds);
+        return orders;
     }
 
     private async Task<JsonElement?> GetAsync(string path, CancellationToken ct)
@@ -522,7 +573,11 @@ public class SchwabBrokerClient : IBrokerClient
 
         try
         {
+            var sw = Stopwatch.StartNew();
             var resp = await _http.SendAsync(req, ct);
+            _logger.LogInformation(
+                "[LATENCY] Schwab GET path={Path} status={Status} httpMs={HttpMs}",
+                path, (int)resp.StatusCode, sw.ElapsedMilliseconds);
             if (!resp.IsSuccessStatusCode)
             {
                 if ((int)resp.StatusCode == 429)
@@ -573,10 +628,14 @@ public class SchwabBrokerClient : IBrokerClient
             foreach (var pos in positions.EnumerateArray())
             {
                 var symbol = pos.GetProperty("instrument").GetProperty("symbol").GetString() ?? "";
-                var qty = pos.TryGetProperty("longQuantity", out var lq) ? lq.GetDecimal() :
-                          pos.TryGetProperty("shortQuantity", out var sq) ? -sq.GetDecimal() : 0;
+                var longQty = pos.TryGetProperty("longQuantity", out var lq) ? lq.GetDecimal() : 0m;
+                var shortQty = pos.TryGetProperty("shortQuantity", out var sq) ? sq.GetDecimal() : 0m;
+                var qty = longQty - shortQty;
                 var avgPrice = pos.TryGetProperty("averagePrice", out var ap) ? ap.GetDecimal() : 0;
-                var pnl = pos.TryGetProperty("currentDayProfitLoss", out var pl) ? pl.GetDecimal() : (decimal?)null;
+                var dayPnl = TryGetDecimal(pos, "currentDayProfitLoss");
+                var openPnl = qty >= 0
+                    ? TryGetDecimal(pos, "longOpenProfitLoss")
+                    : TryGetDecimal(pos, "shortOpenProfitLoss");
 
                 summary.Positions[symbol] = new Position
                 {
@@ -584,7 +643,8 @@ public class SchwabBrokerClient : IBrokerClient
                     Symbol = symbol,
                     Quantity = (int)qty,
                     AverageCost = avgPrice,
-                    UnrealizedPnL = pnl
+                    UnrealizedPnL = openPnl,
+                    DayPnL = dayPnl
                 };
             }
         }
@@ -606,6 +666,14 @@ public class SchwabBrokerClient : IBrokerClient
 
     private static void FlattenOrders(string accountId, JsonElement item, List<OrderState> orders)
     {
+        if (IsOcoStrategy(item))
+        {
+            var oco = ParseOcoOrder(accountId, item);
+            if (oco != null)
+                orders.Add(oco);
+            return;
+        }
+
         var parsed = ParseSingleOrder(accountId, item);
         // Only surface entries that look like a real leaf order — has a symbol,
         // has legs, and has a non-zero quantity. This drops Schwab's strategy
@@ -621,6 +689,106 @@ public class SchwabBrokerClient : IBrokerClient
         }
     }
 
+    private static bool IsOcoStrategy(JsonElement item) =>
+        item.TryGetProperty("orderStrategyType", out var ost)
+        && ost.ValueKind == JsonValueKind.String
+        && string.Equals(ost.GetString(), "OCO", StringComparison.OrdinalIgnoreCase)
+        && item.TryGetProperty("childOrderStrategies", out var kids)
+        && kids.ValueKind == JsonValueKind.Array;
+
+    private static OrderState? ParseOcoOrder(string accountId, JsonElement item)
+    {
+        if (!item.TryGetProperty("childOrderStrategies", out var kids) || kids.ValueKind != JsonValueKind.Array)
+            return null;
+
+        JsonElement? limitChild = null;
+        JsonElement? stopChild = null;
+        foreach (var kid in kids.EnumerateArray())
+        {
+            if (IsLimitLike(kid) && limitChild == null)
+                limitChild = kid;
+            else if (IsStopLike(kid) && stopChild == null)
+                stopChild = kid;
+        }
+
+        if (limitChild == null && stopChild == null)
+            return null;
+
+        var primary = limitChild ?? stopChild!.Value;
+        var parsed = ParseSingleOrder(accountId, primary);
+        if (string.IsNullOrEmpty(parsed.Symbol) || parsed.QuantityOrdered <= 0)
+            return null;
+
+        var parentId = item.TryGetProperty("orderId", out var oid) && oid.ValueKind == JsonValueKind.Number
+            ? oid.GetInt64().ToString()
+            : parsed.BrokerOrderId;
+
+        var status = MapOcoStatus(item, limitChild, stopChild);
+        var limitId = limitChild.HasValue ? TryGetOrderId(limitChild.Value) : null;
+        var stopId = stopChild.HasValue ? TryGetOrderId(stopChild.Value) : null;
+        var limitPrice = limitChild.HasValue ? TryGetDecimal(limitChild.Value, "price") : null;
+        var stopPrice = stopChild.HasValue ? TryGetDecimal(stopChild.Value, "stopPrice") : null;
+
+        return new OrderState
+        {
+            ClientOrderId = parentId ?? parsed.ClientOrderId,
+            BrokerOrderId = parentId ?? parsed.BrokerOrderId,
+            ParentOrderId = parentId,
+            LimitLegOrderId = limitId,
+            StopLegOrderId = stopId,
+            IsOcoGroup = true,
+            AccountId = accountId,
+            Symbol = parsed.Symbol,
+            Side = parsed.Side,
+            QuantityOrdered = parsed.QuantityOrdered,
+            QuantityFilled = parsed.QuantityFilled,
+            OrderType = OrderType.Bracket,
+            LimitPrice = limitPrice,
+            StopPrice = stopPrice,
+            AverageFillPrice = parsed.AverageFillPrice,
+            Status = status,
+            Source = OrderSource.System,
+            CreatedAtUtc = parsed.CreatedAtUtc,
+            LastUpdatedUtc = parsed.LastUpdatedUtc
+        };
+    }
+
+    private static OrderStatus MapOcoStatus(JsonElement parent, JsonElement? limitChild, JsonElement? stopChild)
+    {
+        var parentStatus = parent.TryGetProperty("status", out var pst) ? MapStatus(pst.GetString()) : OrderStatus.Unknown;
+        var limitStatus = limitChild.HasValue && limitChild.Value.TryGetProperty("status", out var lst)
+            ? MapStatus(lst.GetString())
+            : OrderStatus.Unknown;
+        var stopStatus = stopChild.HasValue && stopChild.Value.TryGetProperty("status", out var sst)
+            ? MapStatus(sst.GetString())
+            : OrderStatus.Unknown;
+
+        if (IsWorkingStatus(limitStatus) || IsWorkingStatus(stopStatus))
+            return OrderStatus.Working;
+        if (limitStatus == OrderStatus.PartiallyFilled || stopStatus == OrderStatus.PartiallyFilled)
+            return OrderStatus.PartiallyFilled;
+        if (limitStatus == OrderStatus.Filled || stopStatus == OrderStatus.Filled)
+            return OrderStatus.Filled;
+        if (parentStatus != OrderStatus.Unknown)
+            return parentStatus;
+        if (limitStatus != OrderStatus.Unknown)
+            return limitStatus;
+        return stopStatus;
+    }
+
+    private static bool IsWorkingStatus(OrderStatus status) =>
+        status is OrderStatus.Working or OrderStatus.Accepted or OrderStatus.Submitted or OrderStatus.ReplacePending or OrderStatus.CancelPending;
+
+    private static string? TryGetOrderId(JsonElement item) =>
+        item.TryGetProperty("orderId", out var oid) && oid.ValueKind == JsonValueKind.Number
+            ? oid.GetInt64().ToString()
+            : null;
+
+    private static decimal? TryGetDecimal(JsonElement item, string property) =>
+        item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number
+            ? value.GetDecimal()
+            : null;
+
     private static OrderState ParseSingleOrder(string accountId, JsonElement item)
     {
         var brokerId = item.TryGetProperty("orderId", out var oid) && oid.ValueKind == JsonValueKind.Number
@@ -635,6 +803,17 @@ public class SchwabBrokerClient : IBrokerClient
                     ? p.GetDecimal() : (decimal?)null;
         var stopPrice = item.TryGetProperty("stopPrice", out var sp) && sp.ValueKind == JsonValueKind.Number
                         ? sp.GetDecimal() : (decimal?)null;
+        var (execQty, execAvgPrice) = TryGetExecutionFill(item);
+        if (execQty > 0)
+            filled = execQty;
+
+        var avgFillPrice = execAvgPrice
+            ?? TryGetDecimal(item, "averagePrice")
+            ?? TryGetDecimal(item, "price");
+        var createdAt = TryGetDateTimeUtc(item, "enteredTime") ?? DateTime.UtcNow;
+        var updatedAt = TryGetDateTimeUtc(item, "closeTime")
+            ?? TryGetDateTimeUtc(item, "enteredTime")
+            ?? DateTime.UtcNow;
 
         string symbol = "";
         OrderSide side = OrderSide.Buy;
@@ -664,9 +843,52 @@ public class SchwabBrokerClient : IBrokerClient
             OrderType     = MapOrderType(orderType),
             LimitPrice    = price,
             StopPrice     = stopPrice,
+            AverageFillPrice = filled > 0 ? avgFillPrice : null,
             Status        = status,
-            Source        = OrderSource.System
+            Source        = OrderSource.System,
+            CreatedAtUtc  = updatedAt.Date == DateTime.UtcNow.Date ? updatedAt : createdAt,
+            LastUpdatedUtc = updatedAt
         };
+    }
+
+    private static (int Quantity, decimal? AveragePrice) TryGetExecutionFill(JsonElement item)
+    {
+        if (!item.TryGetProperty("orderActivityCollection", out var activities) ||
+            activities.ValueKind != JsonValueKind.Array)
+            return (0, null);
+
+        decimal totalQty = 0m;
+        decimal totalValue = 0m;
+        foreach (var activity in activities.EnumerateArray())
+        {
+            if (!activity.TryGetProperty("executionLegs", out var legs) ||
+                legs.ValueKind != JsonValueKind.Array)
+                continue;
+
+            foreach (var leg in legs.EnumerateArray())
+            {
+                var qty = TryGetDecimal(leg, "quantity") ?? 0m;
+                var price = TryGetDecimal(leg, "price") ?? 0m;
+                if (qty <= 0 || price <= 0) continue;
+
+                totalQty += qty;
+                totalValue += qty * price;
+            }
+        }
+
+        return totalQty > 0
+            ? ((int)totalQty, totalValue / totalQty)
+            : (0, null);
+    }
+
+    private static DateTime? TryGetDateTimeUtc(JsonElement item, string property)
+    {
+        if (!item.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.String)
+            return null;
+
+        return DateTime.TryParse(value.GetString(), out var dt)
+            ? dt.ToUniversalTime()
+            : null;
     }
 
     // Schwab has ~20 order statuses. Anything that means "live at broker, still

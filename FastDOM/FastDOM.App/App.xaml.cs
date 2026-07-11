@@ -124,6 +124,8 @@ public partial class App : Application
 
         // App services
         services.AddSingleton<OrderService>();
+        services.AddSingleton<SyntheticStopService>();
+        services.AddSingleton<AccountSummaryCache>();
         services.AddSingleton<DomService>();
         services.AddSingleton<HotkeyService>();
         services.AddSingleton<ScriptEngine>();

@@ -4,11 +4,11 @@
     "Label": "Buy MKT",
     "Color": "#1B5E20",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "BUY $AMOUNT MKT",
     "Action": "BuyMarket",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100
+      "FixedShares": 0
     },
     "PriceRule": {
       "Type": "DomClickedPrice"
@@ -25,11 +25,11 @@
     "Label": "Sell MKT",
     "Color": "#B71C1C",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "SELL $AMOUNT MKT",
     "Action": "SellMarket",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100
+      "FixedShares": 0
     },
     "PriceRule": {
       "Type": "DomClickedPrice"
@@ -46,11 +46,11 @@
     "Label": "Buy Ask",
     "Color": "#2E7D32",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "BUY $AMOUNT LMT ASK",
     "Action": "BuyAsk",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100
+      "FixedShares": 0
     },
     "PriceRule": {
       "Type": "DomClickedPrice"
@@ -67,11 +67,11 @@
     "Label": "Sell Bid",
     "Color": "#C62828",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "SELL $AMOUNT LMT BID",
     "Action": "SellBid",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100
+      "FixedShares": 0
     },
     "PriceRule": {
       "Type": "DomClickedPrice"
@@ -88,11 +88,11 @@
     "Label": "Buy Bid",
     "Color": "#388E3C",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "BUY $AMOUNT LMT BID",
     "Action": "BuyBid",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100
+      "FixedShares": 0
     },
     "PriceRule": {
       "Type": "DomClickedPrice"
@@ -109,11 +109,11 @@
     "Label": "Sell Ask",
     "Color": "#D32F2F",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "SELL $AMOUNT LMT ASK",
     "Action": "SellAsk",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100
+      "FixedShares": 0
     },
     "PriceRule": {
       "Type": "DomClickedPrice"
@@ -189,27 +189,6 @@
     "DisplayOrder": 8
   },
   {
-    "Id": "cancel_all",
-    "Label": "Cancel All",
-    "Color": "#212121",
-    "TextColor": "#FFFFFF",
-    "Script": null,
-    "Action": "CancelAll",
-    "QuantityRule": {
-      "Type": "Fixed",
-      "FixedShares": 0
-    },
-    "PriceRule": {
-      "Type": "DomClickedPrice"
-    },
-    "OrderType": "Limit",
-    "TimeInForce": "Day",
-    "RequireConfirmation": true,
-    "IsEnabled": true,
-    "KeyboardShortcut": null,
-    "DisplayOrder": 9
-  },
-  {
     "Id": "sell_25",
     "Label": "Sell 25%",
     "Color": "#BF360C",
@@ -252,28 +231,6 @@
     "IsEnabled": true,
     "KeyboardShortcut": null,
     "DisplayOrder": 11
-  },
-  {
-    "Id": "sell_100",
-    "Label": "Sell 100%",
-    "Color": "#B71C1C",
-    "TextColor": "#FFFFFF",
-    "Script": null,
-    "Action": "SellPercent",
-    "QuantityRule": {
-      "Type": "PercentOfPosition",
-      "FixedShares": 0,
-      "PercentOfPosition": 100
-    },
-    "PriceRule": {
-      "Type": "DomClickedPrice"
-    },
-    "OrderType": "Limit",
-    "TimeInForce": "Day",
-    "RequireConfirmation": false,
-    "IsEnabled": true,
-    "KeyboardShortcut": null,
-    "DisplayOrder": 12
   },
   {
     "Id": "stop_be",
@@ -347,6 +304,35 @@
     "DisplayOrder": 15
   },
   {
+    "Id": "risk_buy_simple",
+    "Label": "Risk Buy Simple",
+    "Color": "#1976D2",
+    "TextColor": "#FFFFFF",
+    "Script": "DIALOG STOP\nBUY RISK:$300 LMT ASK+0.10 STOP $STOP\nBRACKET STOP $STOP",
+    "Action": "BuyMarket",
+    "QuantityRule": {
+      "Type": "Fixed",
+      "FixedShares": 0,
+      "DollarAmount": 0,
+      "PercentOfPosition": 0,
+      "PercentOfBuyingPower": 0,
+      "StopDistanceForRisk": 0,
+      "RiskDollars": 0,
+      "RoundToLotSize": true
+    },
+    "PriceRule": {
+      "Type": "DomClickedPrice",
+      "Offset": 0,
+      "ManualPrice": 0
+    },
+    "OrderType": "Limit",
+    "TimeInForce": "Day",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "KeyboardShortcut": null,
+    "DisplayOrder": 16
+  },
+  {
     "Id": "sell_10_mkt",
     "Label": "Sell 10%",
     "Color": "#00BCD4",
@@ -365,6 +351,6 @@
     "RequireConfirmation": false,
     "IsEnabled": true,
     "KeyboardShortcut": "Ctrl+X",
-    "DisplayOrder": 16
+    "DisplayOrder": 17
   }
 ]

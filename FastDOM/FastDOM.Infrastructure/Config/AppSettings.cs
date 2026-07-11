@@ -13,7 +13,7 @@ public class AppSettings
     public string DefaultAccountId { get; set; } = string.Empty;
     public List<int> ShareSizePresets { get; set; } = [100, 200, 500];
     public int DefaultShareSize { get; set; } = 100;
-    public int DomVisibleLevels { get; set; } = 120;
+    public int DomVisibleLevels { get; set; } = 140;
     public bool ShowDepthMap { get; set; } = true;
     public bool AlwaysOnTop { get; set; } = false;
     public bool CompactMode { get; set; } = false;

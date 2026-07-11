@@ -12,17 +12,6 @@
         <conv:DomRowBrushConverter x:Key="RowBrush"/>
         <conv:OrderSummaryBrushConverter x:Key="OrderBrush"/>
 
-        <!-- DOM row style — subtle highlight based on state -->
-        <Style x:Key="DomRowStyle" TargetType="DataGridRow">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Height" Value="20"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsLast}" Value="True">
-                    <Setter Property="Background" Value="#33FFD54F"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
         <Style x:Key="PriceCell" TargetType="TextBlock">
             <Setter Property="TextAlignment" Value="Center"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
@@ -38,20 +27,16 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal">
                     <TextBlock Text="{Binding Symbol}" FontWeight="Bold" FontSize="14"
                                Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0"/>
-                    <Border Padding="4,1" CornerRadius="2" Background="#FF1B5E20"
-                            Visibility="{Binding HasDepth, Converter={StaticResource BoolToVisibility}}">
-                        <TextBlock Text="L2" FontSize="10" Foreground="LimeGreen"/>
-                    </Border>
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <Button Content="-" Width="24" FontSize="11" Margin="2,0"
+                    <Button Content="−" Width="24" FontSize="11" Margin="2,0"
                             Command="{Binding DecreaseDepthCommand}"
                             ToolTip="Show fewer DOM price levels"/>
                     <TextBlock Text="{Binding VisibleLevels, StringFormat={}{0} lvls}"
@@ -65,13 +50,27 @@
                     <Button Content="+" Width="24" FontSize="11" Margin="2,0"
                             Command="{Binding IncreaseDepthCommand}"
                             ToolTip="Show more DOM price levels"/>
+                    <Button Content="Z−" Width="30" FontSize="11" Margin="8,0,2,0"
+                            Command="{Binding ZoomOutCommand}"
+                            ToolTip="Zoom out: increase price step so the ladder covers more range"/>
+                    <Button Content="&gt;&lt;" Width="30" FontSize="11" Margin="2,0"
+                            Command="{Binding ResetZoomCommand}"
+                            Background="#FF455A64"
+                            Foreground="White"
+                            FontWeight="Bold"
+                            ToolTip="Reset DOM zoom to original 1-tick price step"/>
+                    <Button Content="Z+" Width="30" FontSize="11" Margin="2,0,8,0"
+                            Command="{Binding ZoomInCommand}"
+                            ToolTip="Zoom in: decrease price step for finer ladder detail"/>
                     <Button Content="Lock" Width="50" FontSize="11" Margin="2,0"
                             Click="LockButton_Click"
                             ToolTip="Lock/follow the ladder around the last traded price"/>
                     <Button Content="Center" Width="55" FontSize="11" Margin="2,0"
+                            ToolTip="Center ladder around last traded price"
                             Click="CenterButton_Click"/>
                     <CheckBox Content="Lock" IsChecked="{Binding IsLocked}"
-                              VerticalAlignment="Center" Margin="4,0"/>
+                              ToolTip="Lock/follow last price"
+                              VerticalAlignment="Center" Margin="4,0,0,0"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -79,11 +78,12 @@
         <!-- DOM column headers -->
         <Grid DockPanel.Dock="Top" Background="#FF111111" Height="22">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="70"/>
+                <ColumnDefinition Width="*" MinWidth="70"/>
                 <ColumnDefinition Width="60"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="86"/>
                 <ColumnDefinition Width="60"/>
-                <ColumnDefinition Width="70"/>
+                <ColumnDefinition Width="*" MinWidth="70"/>
+                <ColumnDefinition Width="78"/>
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="BUY" Style="{StaticResource PriceCell}"
                        Foreground="{StaticResource BuyOrderBrush}" FontWeight="Bold"/>
@@ -95,19 +95,27 @@
                        Foreground="{StaticResource AskBrush}"/>
             <TextBlock Grid.Column="4" Text="SELL" Style="{StaticResource PriceCell}"
                        Foreground="{StaticResource SellOrderBrush}" FontWeight="Bold"/>
+            <TextBlock Grid.Column="5" Text="P/L" Style="{StaticResource PriceCell}"
+                       Foreground="{StaticResource SecondaryForeBrush}" FontWeight="Bold"/>
             <!-- Column separator lines -->
             <Rectangle Grid.Column="1" Width="1" HorizontalAlignment="Left" Fill="#22FFFFFF" IsHitTestVisible="False"/>
             <Rectangle Grid.Column="2" Width="1" HorizontalAlignment="Left" Fill="#22FFFFFF" IsHitTestVisible="False"/>
             <Rectangle Grid.Column="3" Width="1" HorizontalAlignment="Left" Fill="#22FFFFFF" IsHitTestVisible="False"/>
             <Rectangle Grid.Column="4" Width="1" HorizontalAlignment="Left" Fill="#22FFFFFF" IsHitTestVisible="False"/>
+            <Rectangle Grid.Column="5" Width="1" HorizontalAlignment="Left" Fill="#22FFFFFF" IsHitTestVisible="False"/>
             <!-- Header bottom line -->
-            <Rectangle Grid.Column="0" Grid.ColumnSpan="5" Height="1" VerticalAlignment="Bottom" Fill="#22FFFFFF" IsHitTestVisible="False"/>
+            <Rectangle Grid.Column="0" Grid.ColumnSpan="6" Height="1" VerticalAlignment="Bottom" Fill="#22FFFFFF" IsHitTestVisible="False"/>
         </Grid>
 
         <!-- DOM price ladder -->
         <ScrollViewer x:Name="DomScroller" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <ItemsControl x:Name="DomRows" ItemsSource="{Binding Rows}">
+                <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Grid x:Name="DomRow" Height="18" Cursor="Hand"
@@ -124,17 +132,18 @@
                                 </MultiBinding>
                             </Grid.Background>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="*" MinWidth="70"/>
                                 <ColumnDefinition Width="60"/>
-                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="86"/>
                                 <ColumnDefinition Width="60"/>
-                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="*" MinWidth="70"/>
+                                <ColumnDefinition Width="78"/>
                             </Grid.ColumnDefinitions>
 
                             <!-- Hover highlight: subtle overlay + top/bottom outline so the price
                                  you're about to click is unmistakable. Rendered UNDER content;
                                  non-hit-test so clicks reach the marker columns as before. -->
-                            <Border Grid.Column="0" Grid.ColumnSpan="5"
+                            <Border Grid.Column="0" Grid.ColumnSpan="6"
                                     IsHitTestVisible="False"
                                     BorderThickness="0,1,0,1"
                                     Panel.ZIndex="-1">
@@ -200,8 +209,22 @@
                                            FontWeight="Bold"/>
                             </Grid>
 
-                            <!-- Price column -->
+                            <!-- Price column. Last trade is a narrow price marker, not a full row fill. -->
                             <Border Grid.Column="2">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsLast}" Value="True">
+                                                <Setter Property="Background" Value="#33251F00"/>
+                                                <Setter Property="BorderBrush" Value="#FFFFD54F"/>
+                                                <Setter Property="BorderThickness" Value="0,1,0,1"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
                                 <TextBlock Text="{Binding Price, StringFormat=F2}">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock" BasedOn="{StaticResource PriceCell}">
@@ -267,8 +290,17 @@
                                 </Border>
                             </Grid>
 
+                            <!-- Hypothetical position P/L at this price level -->
+                            <TextBlock Grid.Column="5"
+                                       Text="{Binding PriceLevelPnLDisplay}"
+                                       Style="{StaticResource PriceCell}"
+                                       FontSize="11"
+                                       TextAlignment="Right"
+                                       Padding="0,0,5,0"
+                                       Foreground="{Binding PriceLevelPnL, Converter={StaticResource PnLBrushConverter}}"/>
+
                             <!-- Row grid line -->
-                            <Rectangle Grid.Column="0" Grid.ColumnSpan="5"
+                            <Rectangle Grid.Column="0" Grid.ColumnSpan="6"
                                        Height="1" VerticalAlignment="Bottom"
                                        Fill="#18FFFFFF" IsHitTestVisible="False"/>
                         </Grid>

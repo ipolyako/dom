@@ -284,6 +284,7 @@ public class AlpacaBrokerClient : IBrokerClient
                         AverageCost  = ParseDecimalFromString(p, "avg_entry_price"),
                         CurrentPrice = ParseDecimalFromString(p, "current_price"),
                         UnrealizedPnL = ParseDecimalFromString(p, "unrealized_pl"),
+                        DayPnL       = ParseDecimalFromString(p, "unrealized_intraday_pl"),
                         RealizedPnL   = ParseDecimalFromString(p, "realized_pl"),
                     };
                 }

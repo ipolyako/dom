@@ -6,6 +6,10 @@ public class OrderState
 {
     public required string ClientOrderId { get; init; }
     public string? BrokerOrderId { get; set; }
+    public string? ParentOrderId { get; set; }
+    public string? LimitLegOrderId { get; set; }
+    public string? StopLegOrderId { get; set; }
+    public bool IsOcoGroup { get; set; }
     public required string AccountId { get; init; }
     public required string Symbol { get; init; }
     public required OrderSide Side { get; init; }
@@ -24,7 +28,16 @@ public class OrderState
     public string? BrokerMessage { get; set; }
     public List<string> StatusHistory { get; } = [];
 
-    public bool IsWorking => Status is OrderStatus.Working or OrderStatus.PartiallyFilled or OrderStatus.Accepted;
+    // An order remains open until the broker reports a terminal state. Schwab
+    // commonly returns QUEUED/PENDING_ACTIVATION (mapped to Submitted) outside
+    // market hours, and cancel/replace requests do not make the original order
+    // inactive until Schwab confirms them.
+    public bool IsWorking => Status is OrderStatus.Submitted
+        or OrderStatus.Accepted
+        or OrderStatus.Working
+        or OrderStatus.PartiallyFilled
+        or OrderStatus.CancelPending
+        or OrderStatus.ReplacePending;
     public bool IsTerminal => Status is OrderStatus.Filled or OrderStatus.Cancelled or OrderStatus.RejectedLocally
                                         or OrderStatus.BrokerRejected or OrderStatus.Error or OrderStatus.Replaced;
 

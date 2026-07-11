@@ -29,9 +29,11 @@ public partial class MainViewModel : ObservableObject
     private readonly HotkeyService _hotkeyService;
     private readonly ConfigManager _config;
     private readonly BrokerFactory _brokerFactory;
+    private readonly AccountSummaryCache _accountCache;
     private readonly DispatcherTimer _statusTimer;
     private readonly DispatcherTimer _accountSyncTimer;
     private bool _accountSyncInFlight;
+    private bool _syncingTicketQuantity;
 
     [ObservableProperty] private string _selectedSymbol = "SPY";
     [ObservableProperty] private string _selectedAccountId = "";
@@ -86,7 +88,8 @@ public partial class MainViewModel : ObservableObject
         HotButtonsViewModel hotVm,
         OrderTicketViewModel ticketVm,
         WatchlistViewModel watchlistVm,
-        DepthMapViewModel depthMapVm)
+        DepthMapViewModel depthMapVm,
+        AccountSummaryCache accountCache)
     {
         _logger = logger;
         _broker = broker;
@@ -97,6 +100,7 @@ public partial class MainViewModel : ObservableObject
         _hotkeyService = hotkeyService;
         _config = config;
         _brokerFactory = brokerFactory;
+        _accountCache = accountCache;
 
         DomViewModel = domVm;
         PositionViewModel = posVm;
@@ -113,7 +117,7 @@ public partial class MainViewModel : ObservableObject
 
         posVm.SymbolSelected += sym =>
         {
-            SelectedSymbol = sym;
+            SelectedSymbol = SymbolClassifier.NormalizeDisplaySymbol(sym);
             _ = ChangeSymbolCommand.ExecuteAsync(null);
         };
 
@@ -140,6 +144,24 @@ public partial class MainViewModel : ObservableObject
         _orderService.OrderStateChanged += OnOrderStateChanged;
         _orderService.ToastRequested += ShowToast;
         _domService.QuoteUpdated += OnQuoteUpdated;
+        OrderTicketViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(OrderTicketViewModel.Quantity) || _syncingTicketQuantity)
+                return;
+
+            if (ShareSize == OrderTicketViewModel.Quantity)
+                return;
+
+            _syncingTicketQuantity = true;
+            try
+            {
+                ShareSize = OrderTicketViewModel.Quantity;
+            }
+            finally
+            {
+                _syncingTicketQuantity = false;
+            }
+        };
 
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _statusTimer.Tick += (_, _) => UpdateDataAge();
@@ -249,7 +271,7 @@ public partial class MainViewModel : ObservableObject
         if (string.IsNullOrEmpty(SelectedAccountId)) return;
         try
         {
-            var summary = await _broker.GetAccountSummaryAsync(SelectedAccountId);
+            var summary = await _accountCache.RefreshAsync(SelectedAccountId);
             Application.Current.Dispatcher.Invoke(() =>
             {
                 var bp   = summary.BuyingPower;
@@ -306,6 +328,7 @@ public partial class MainViewModel : ObservableObject
             await _orderService.SyncOrdersAsync(SelectedAccountId);
 
             await PositionViewModel.RefreshAsync(SelectedAccountId, SelectedSymbol);
+            DomViewModel.SetCurrentPosition(PositionViewModel.CurrentPosition);
 
             await RefreshBuyingPowerAsync();
         }
@@ -323,10 +346,17 @@ public partial class MainViewModel : ObservableObject
     private async Task ChangeSymbolAsync()
     {
         if (string.IsNullOrEmpty(SelectedSymbol)) return;
+        SelectedSymbol = SymbolClassifier.NormalizeDisplaySymbol(SelectedSymbol);
         LogActivity($"Subscribing to {SelectedSymbol}...");
+        _latestQuote = null;
+        QuoteDisplay = "—";
+        DataAgeDisplay = "—";
+        MarketDataStale = true;
+        OrderTicketViewModel.LastPrice = null;
         await _domService.SubscribeAsync(SelectedSymbol);
         DomViewModel.Symbol = SelectedSymbol;
         await PositionViewModel.RefreshAsync(SelectedAccountId, SelectedSymbol);
+        DomViewModel.SetCurrentPosition(PositionViewModel.CurrentPosition);
         await WatchlistViewModel.ResubscribeAsync();
         LogActivity($"Subscribed to {SelectedSymbol}");
     }
@@ -341,8 +371,11 @@ public partial class MainViewModel : ObservableObject
 
     public async Task ExecuteHotkeyActionAsync(string actionType)
     {
+        var symbol = string.IsNullOrWhiteSpace(DomViewModel.Symbol)
+            ? SelectedSymbol.Trim().ToUpperInvariant()
+            : DomViewModel.Symbol.Trim().ToUpperInvariant();
         LogActivity($"Hotkey: {actionType}");
-        await HotButtonsViewModel.ExecuteActionAsync(actionType, SelectedSymbol, SelectedAccountId,
+        await HotButtonsViewModel.ExecuteActionAsync(actionType, symbol, SelectedAccountId,
             ShareSize, _domService.CurrentQuote);
     }
 
@@ -352,12 +385,15 @@ public partial class MainViewModel : ObservableObject
         // WPF coalesces bursts of same-priority operations.
         Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
-            var priceStr = state.AverageFillPrice.HasValue
-                ? $" @{state.AverageFillPrice:F2}"
-                : state.LimitPrice.HasValue ? $" @{state.LimitPrice:F2}"
-                : state.StopPrice.HasValue ? $" STOP @{state.StopPrice:F2}"
-                : " MKT";
-            LogActivity($"Order {state.Status}: {state.Side} {state.QuantityOrdered} {state.Symbol}{priceStr}");
+            if (ShouldShowOrderInActivityLog(state))
+            {
+                var priceStr = state.AverageFillPrice.HasValue
+                    ? $" @{state.AverageFillPrice:F2}"
+                    : state.LimitPrice.HasValue ? $" @{state.LimitPrice:F2}"
+                    : state.StopPrice.HasValue ? $" STOP @{state.StopPrice:F2}"
+                    : " MKT";
+                LogActivity($"Order {state.Status}: {state.Side} {state.QuantityOrdered} {state.Symbol}{priceStr}");
+            }
             // Each order is stored under both ClientOrderId and BrokerOrderId keys; dedupe.
             var uniqueOrders = _orderService.ActiveOrders.Values
                 .DistinctBy(o => o.BrokerOrderId ?? o.ClientOrderId)
@@ -372,6 +408,22 @@ public partial class MainViewModel : ObservableObject
                 _ = RefreshBuyingPowerAsync();
             }
         }));
+    }
+
+    private bool ShouldShowOrderInActivityLog(OrderState state)
+    {
+        if (string.Equals(state.Symbol, SelectedSymbol, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Keep account-wide safety-relevant terminal updates visible, but do not
+        // let passive Schwab sync of unrelated working orders look like the
+        // current DOM is trading another ticker.
+        return state.Status is OrderStatus.Filled
+            or OrderStatus.PartiallyFilled
+            or OrderStatus.Cancelled
+            or OrderStatus.BrokerRejected
+            or OrderStatus.RejectedLocally
+            or OrderStatus.Error;
     }
 
     // Quote stream fires many times per second on a busy symbol. Instead of
@@ -424,7 +476,18 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnShareSizeChanged(int value)
     {
-        OrderTicketViewModel.Quantity = value;
+        if (_syncingTicketQuantity || OrderTicketViewModel.Quantity == value)
+            return;
+
+        _syncingTicketQuantity = true;
+        try
+        {
+            OrderTicketViewModel.Quantity = value;
+        }
+        finally
+        {
+            _syncingTicketQuantity = false;
+        }
     }
 
     partial void OnShowDepthMapChanged(bool value)

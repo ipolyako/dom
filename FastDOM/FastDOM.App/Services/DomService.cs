@@ -19,6 +19,7 @@ public class DomService : IDisposable
     private Quote? _currentQuote;
     private MarketDepth? _currentDepth;
     private SymbolInfo _symbolInfo = SymbolInfo.Default("SPY");
+    private decimal? _ladderCenterPrice;
     private readonly List<IDisposable> _subscriptions = [];
 
     public event Action? DomUpdated;
@@ -45,6 +46,7 @@ public class DomService : IDisposable
 
         _currentQuote = null;
         _currentDepth = null;
+        _ladderCenterPrice = null;
         _symbolInfo = SymbolInfo.Default(symbol);
 
         await _marketData.SubscribeQuotesAsync(symbol);
@@ -73,6 +75,7 @@ public class DomService : IDisposable
     public void PopulateLadder(
         ObservableCollection<DomLadderRow> target,
         int visibleLevels,
+        int priceStepTicks,
         IEnumerable<OrderState> workingOrders,
         Position? position)
     {
@@ -83,22 +86,25 @@ public class DomService : IDisposable
         _buyOrdersScratch.Clear();
         _sellOrdersScratch.Clear();
 
-        if (_currentDepth != null)
-        {
-            foreach (var b in _currentDepth.Bids) _bidSizesScratch[b.Price] = b.BidSize;
-            foreach (var a in _currentDepth.Asks) _askSizesScratch[a.Price] = a.AskSize;
-        }
-
-        decimal center = _currentQuote.Last;
+        decimal lastPrice = _symbolInfo.RoundToTick(_currentQuote.Last);
         decimal tick   = _symbolInfo.TickSize;
+        decimal step   = tick * Math.Max(1, priceStepTicks);
+        decimal center = BucketPrice(_ladderCenterPrice ?? lastPrice, step);
+        _ladderCenterPrice = center;
         int totalLevels = Math.Clamp(visibleLevels, 20, 400);
         int levelsAbove = totalLevels / 2;
         int levelsBelow = totalLevels - levelsAbove - 1;
         bool hasRealDepth = _currentDepth?.HasRealDepth ?? false;
 
+        if (_currentDepth != null)
+        {
+            foreach (var b in _currentDepth.Bids) AddSizeAt(_bidSizesScratch, BucketPrice(b.Price, step), b.BidSize);
+            foreach (var a in _currentDepth.Asks) AddSizeAt(_askSizesScratch, BucketPrice(a.Price, step), a.AskSize);
+        }
+
         // Market orders pin to best quote (ask for buys, bid for sells).
-        decimal mktBuyPrice  = _symbolInfo.RoundToTick(_currentQuote.Ask > 0 ? _currentQuote.Ask : center);
-        decimal mktSellPrice = _symbolInfo.RoundToTick(_currentQuote.Bid > 0 ? _currentQuote.Bid : center);
+        decimal mktBuyPrice  = BucketPrice(_currentQuote.Ask > 0 ? _currentQuote.Ask : center, step);
+        decimal mktSellPrice = BucketPrice(_currentQuote.Bid > 0 ? _currentQuote.Bid : center, step);
 
         foreach (var o in workingOrders)
         {
@@ -106,24 +112,25 @@ public class DomService : IDisposable
             var side = o.Side;
             var dict = side == Core.Enums.OrderSide.Buy ? _buyOrdersScratch : _sellOrdersScratch;
             if (o.LimitPrice.HasValue)
-                AddOrderAt(dict, _symbolInfo.RoundToTick(o.LimitPrice.Value), o);
+                AddOrderAt(dict, BucketPrice(o.LimitPrice.Value, step), o);
             if (o.StopPrice.HasValue)
-                AddOrderAt(dict, _symbolInfo.RoundToTick(o.StopPrice.Value), o);
+                AddOrderAt(dict, BucketPrice(o.StopPrice.Value, step), o);
             if (!o.LimitPrice.HasValue && !o.StopPrice.HasValue)
                 AddOrderAt(dict, side == Core.Enums.OrderSide.Buy ? mktBuyPrice : mktSellPrice, o);
         }
 
-        decimal bidPrice = _symbolInfo.RoundToTick(_currentQuote.Bid);
-        decimal askPrice = _symbolInfo.RoundToTick(_currentQuote.Ask);
-        decimal lastPrice = _symbolInfo.RoundToTick(_currentQuote.Last);
+        decimal bidPrice = BucketPrice(_currentQuote.Bid, step);
+        decimal askPrice = BucketPrice(_currentQuote.Ask, step);
+        lastPrice = BucketPrice(lastPrice, step);
         decimal positionPrice = position?.AverageCost ?? 0;
-        decimal positionRounded = position != null && !position.IsFlat ? _symbolInfo.RoundToTick(positionPrice) : 0m;
+        decimal positionRounded = position != null && !position.IsFlat ? BucketPrice(positionPrice, step) : 0m;
         bool hasPosition = position != null && !position.IsFlat;
+        int positionQty = hasPosition ? position!.Quantity : 0;
 
         int rowIndex = 0;
         for (int i = levelsAbove; i >= -levelsBelow; i--)
         {
-            decimal price = _symbolInfo.RoundToTick(center + i * tick);
+            decimal price = BucketPrice(center + i * step, step);
             bool isBid = price == bidPrice;
             bool isAsk = price == askPrice;
             bool isLast = price == lastPrice;
@@ -144,6 +151,8 @@ public class DomService : IDisposable
             row.IsLast       = isLast;
             row.IsPosition   = isPosition;
             row.HasRealDepth = hasRealDepth;
+            row.PriceLevelPnL = hasPosition ? (price - positionPrice) * positionQty : null;
+            row.PriceLevelPnLDisplay = hasPosition ? FormatPnL(row.PriceLevelPnL!.Value) : "";
 
             SyncOrderList(_buyOrdersScratch.GetValueOrDefault(price, _emptyOrders),  row.BuyOrders);
             SyncOrderList(_sellOrdersScratch.GetValueOrDefault(price, _emptyOrders), row.SellOrders);
@@ -169,11 +178,54 @@ public class DomService : IDisposable
         for (int i = 0; i < src.Count; i++) dst.Add(src[i]);
     }
 
+    public void CenterLadderOnLast()
+    {
+        if (_currentQuote == null) return;
+        _ladderCenterPrice = _symbolInfo.RoundToTick(_currentQuote.Last);
+    }
+
+    public bool CenterLadderOnLastIfOutsideVisibleRange(int visibleLevels, int priceStepTicks)
+    {
+        if (_currentQuote == null) return false;
+
+        decimal tick = _symbolInfo.TickSize;
+        decimal step = tick * Math.Max(1, priceStepTicks);
+        decimal lastPrice = BucketPrice(_symbolInfo.RoundToTick(_currentQuote.Last), step);
+        decimal center = BucketPrice(_ladderCenterPrice ?? lastPrice, step);
+
+        int totalLevels = Math.Clamp(visibleLevels, 20, 400);
+        int levelsAbove = totalLevels / 2;
+        int levelsBelow = totalLevels - levelsAbove - 1;
+        decimal top = BucketPrice(center + levelsAbove * step, step);
+        decimal bottom = BucketPrice(center - levelsBelow * step, step);
+
+        if (lastPrice <= top && lastPrice >= bottom)
+            return false;
+
+        _ladderCenterPrice = lastPrice;
+        return true;
+    }
+
     private static void AddOrderAt(Dictionary<decimal, List<OrderState>> dict, decimal price, OrderState order)
     {
         if (!dict.TryGetValue(price, out var list)) { list = new List<OrderState>(2); dict[price] = list; }
         list.Add(order);
     }
+
+    private static void AddSizeAt(Dictionary<decimal, int> dict, decimal price, int size)
+    {
+        if (size <= 0) return;
+        dict[price] = dict.GetValueOrDefault(price) + size;
+    }
+
+    public static decimal BucketPrice(decimal price, decimal step)
+    {
+        if (step <= 0) return price;
+        return Math.Round(price / step, 0, MidpointRounding.AwayFromZero) * step;
+    }
+
+    private static string FormatPnL(decimal value) =>
+        value >= 0 ? $"+${value:F2}" : $"-${Math.Abs(value):F2}";
 
     private void OnQuote(Quote q)
     {
@@ -206,6 +258,8 @@ public partial class DomLadderRow : ObservableObject
     [ObservableProperty] private bool _isLast;
     [ObservableProperty] private bool _isPosition;
     [ObservableProperty] private bool _hasRealDepth;
+    [ObservableProperty] private decimal? _priceLevelPnL;
+    [ObservableProperty] private string _priceLevelPnLDisplay = "";
 
     public ObservableCollection<OrderState> BuyOrders { get; } = [];
     public ObservableCollection<OrderState> SellOrders { get; } = [];

@@ -76,9 +76,11 @@
                 <TextBlock Text="Symbol:" VerticalAlignment="Center"
                            Margin="0,0,6,0" Foreground="#FF909090"/>
                 <TextBox x:Name="SymbolBox"
-                         Text="{Binding Underlying, UpdateSourceTrigger=PropertyChanged}"
-                         Width="80" CharacterCasing="Upper"
-                         KeyDown="SymbolBox_KeyDown"/>
+                          Text="{Binding Underlying, UpdateSourceTrigger=PropertyChanged}"
+                          Width="80" CharacterCasing="Upper"
+                          KeyDown="SymbolBox_KeyDown"
+                          GotKeyboardFocus="SymbolBox_GotKeyboardFocus"
+                          PreviewMouseLeftButtonDown="SymbolBox_PreviewMouseLeftButtonDown"/>
                 <Button Content="Load Expiries" Margin="6,0,0,0"
                         Command="{Binding LoadExpirationsCommand}"/>
 

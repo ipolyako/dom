@@ -24,6 +24,19 @@ public partial class OptionsChainWindow : Window
             _vm.LoadExpirationsCommand.Execute(null);
     }
 
+    private void SymbolBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        => ((TextBox)sender).SelectAll();
+
+    private void SymbolBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var tb = (TextBox)sender;
+        if (tb.IsKeyboardFocusWithin) return;
+
+        e.Handled = true;
+        tb.Focus();
+        tb.SelectAll();
+    }
+
     private void ChainGrid_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         // Determine which column was clicked: 0-4 = calls, 5 = strike, 6-10 = puts

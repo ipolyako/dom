@@ -1,4 +1,5 @@
 using FastDOM.Broker.Interfaces;
+using System.Collections.Concurrent;
 using FastDOM.Core.Enums;
 using FastDOM.Core.Models;
 using FastDOM.MarketData.Models;
@@ -15,6 +16,7 @@ public class ScriptContext
     public required int            DefaultSize { get; init; }
     public          Quote?         Quote       { get; init; }
     public          Position?      Position    { get; init; }
+    public          AccountSummary? Account    { get; init; }
     public required OrderService   Orders      { get; init; }
     public required IBrokerClient  Broker      { get; init; }
     public required Action<string> Toast       { get; init; }
@@ -29,8 +31,14 @@ public class ScriptContext
 public class ScriptEngine
 {
     private readonly ILogger<ScriptEngine> _logger;
+    private readonly SyntheticStopService _syntheticStops;
+    private static readonly ConcurrentDictionary<string, byte> FlattenInFlight = new(StringComparer.OrdinalIgnoreCase);
 
-    public ScriptEngine(ILogger<ScriptEngine> logger) => _logger = logger;
+    public ScriptEngine(ILogger<ScriptEngine> logger, SyntheticStopService syntheticStops)
+    {
+        _logger = logger;
+        _syntheticStops = syntheticStops;
+    }
 
     // Execute a multi-command script (commands separated by ; or newlines).
     public async Task ExecuteAsync(string script, ScriptContext ctx)
@@ -124,7 +132,7 @@ public class ScriptEngine
 
                 decimal? limitVal = ResolvePrice(limitP, ctx.Quote, vars: ctx.Variables);
                 decimal? stopVal  = ResolvePrice(stopP,  ctx.Quote, vars: ctx.Variables);
-                int qty = ResolveSize(size, ctx.DefaultSize, ctx.Position, ctx.Quote, limitVal, stopVal);
+                int qty = ResolveSize(size, ctx.DefaultSize, ctx.Position, ctx.Quote, limitVal, stopVal, ctx.Variables);
 
                 if (qty <= 0)
                 {
@@ -165,19 +173,47 @@ public class ScriptEngine
             case "FLAT":
             case "FLATTEN":
             {
-                var livePos = ctx.Position ?? await FetchPositionAsync(ctx);
-                if (livePos == null || livePos.IsFlat) { ctx.Toast("No position to flatten"); return prevEntry; }
-                await ctx.Orders.CancelAllForSymbolAsync(ctx.AccountId, ctx.Symbol);
-                var flatSide = livePos.Side == PositionSide.Long ? OrderSide.Sell : OrderSide.Buy;
-                await PlaceAsync(ctx, flatSide, Math.Abs(livePos.Quantity), OrderType.Market, null, null);
-                return prevEntry;
+                var flatKey = $"{ctx.AccountId}|{ctx.Symbol.Trim().ToUpperInvariant()}";
+                if (!FlattenInFlight.TryAdd(flatKey, 0))
+                {
+                    ctx.Toast($"Flatten already pending for {ctx.Symbol}");
+                    return prevEntry;
+                }
+
+                try
+                {
+                    var livePos = await ResolvePositionAsync(ctx);
+                    if (livePos == null || livePos.IsFlat) { ctx.Toast("No position to flatten"); return prevEntry; }
+                    await ctx.Orders.CancelAllForSymbolFastAsync(ctx.AccountId, ctx.Symbol);
+                    var flatSide = livePos.Side == PositionSide.Long ? OrderSide.Sell : OrderSide.Buy;
+                    var (orderType, price) = ResolveFlattenOrder(flatSide, ctx.Quote);
+                    if (orderType == OrderType.Limit && price == null)
+                    {
+                        ctx.Toast($"No {(flatSide == OrderSide.Sell ? "bid" : "ask")} quote for after-hours flatten");
+                        return prevEntry;
+                    }
+                    await PlaceAsync(ctx, flatSide, Math.Abs(livePos.Quantity), orderType, price, null);
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(2500);
+                        await ctx.Orders.SyncOrdersAsync(ctx.AccountId);
+                        FlattenInFlight.TryRemove(flatKey, out _);
+                    });
+                    return prevEntry;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Script flatten failed");
+                    FlattenInFlight.TryRemove(flatKey, out _);
+                    throw;
+                }
             }
 
             case "REVERSE":
             {
-                var livePos = ctx.Position ?? await FetchPositionAsync(ctx);
+                var livePos = await ResolvePositionAsync(ctx);
                 if (livePos == null || livePos.IsFlat) { ctx.Toast("No position to reverse"); return prevEntry; }
-                await ctx.Orders.CancelAllForSymbolAsync(ctx.AccountId, ctx.Symbol);
+                await ctx.Orders.CancelAllForSymbolFastAsync(ctx.AccountId, ctx.Symbol);
                 var revSide = livePos.Side == PositionSide.Long ? OrderSide.Sell : OrderSide.Buy;
                 await PlaceAsync(ctx, revSide, Math.Abs(livePos.Quantity) * 2, OrderType.Market, null, null);
                 return prevEntry;
@@ -213,7 +249,7 @@ public class ScriptEngine
 
         if (stopP == null) { ctx.Toast("SECURE: STOP price required"); return; }
 
-        var livePos = ctx.Position ?? await FetchPositionAsync(ctx);
+        var livePos = await ResolvePositionAsync(ctx);
         if (livePos == null || livePos.IsFlat)
         {
             ctx.Toast("SECURE: no open position");
@@ -257,7 +293,6 @@ public class ScriptEngine
 
         await RunBracketAsync(bracketTokens, 1, ctx, entry);
     }
-
     private async Task RunBracketAsync(List<string> tokens, int pos, ScriptContext ctx, decimal? entry)
     {
         PriceExpr? stopP = null;
@@ -296,7 +331,7 @@ public class ScriptEngine
         }
         else
         {
-            var livePos = ctx.Position ?? await FetchPositionAsync(ctx);
+            var livePos = await ResolvePositionAsync(ctx);
             totalQty = livePos != null && !livePos.IsFlat
                 ? Math.Abs(livePos.Quantity)
                 : ctx.DefaultSize;
@@ -308,6 +343,22 @@ public class ScriptEngine
             : OrderSide.Sell;
 
         var targetsPlaced = 0;
+
+        if (IsOutsideRegularHours(DateTime.UtcNow))
+        {
+            // Schwab extended sessions accept limit orders only. Keep one local,
+            // quote-driven protective stop instead of repeatedly submitting
+            // unsupported STOP_LIMIT/OCO children. Targets are intentionally not
+            // placed because independent target limits can partially fill and
+            // leave a stale full-size stop capable of reversing the position.
+            _syntheticStops.Arm(ctx.AccountId, ctx.Symbol, exitSide, stopVal.Value, ctx.Toast);
+            ctx.Toast(targets.Count > 0
+                ? $"Synthetic stop armed @ {stopVal:F2}; targets deferred during extended hours"
+                : $"Synthetic stop armed @ {stopVal:F2} (FastDOM must remain running)");
+            return;
+        }
+
+        _syntheticStops.Disarm(ctx.AccountId, ctx.Symbol);
 
         // Place target exits. When a stop is present, each target tranche is an
         // OCO: sell limit target + stop for that same tranche. This avoids
@@ -328,7 +379,7 @@ public class ScriptEngine
                 if (tSize?.Kind == SizeKind.Pct)
                     tQty = (int)Math.Ceiling(totalQty * tSize.Value / 100m);
                 else if (tSize != null)
-                    tQty = ResolveSize(tSize, remaining, ctx.Position, ctx.Quote, entry, stopVal);
+                    tQty = ResolveSize(tSize, remaining, ctx.Position, ctx.Quote, entry, stopVal, ctx.Variables);
                 else
                     tQty = i == targets.Count - 1 ? remaining : perTarget;
 
@@ -345,7 +396,8 @@ public class ScriptEngine
         else
         {
             // No targets specified: just place the protective stop.
-            await PlaceAsync(ctx, exitSide, totalQty, OrderType.StopMarket, null, stopVal);
+            var (stopOrderType, stopLimitPrice) = ResolveProtectiveStopOrder(exitSide, stopVal.Value);
+            await PlaceAsync(ctx, exitSide, totalQty, stopOrderType, stopLimitPrice, stopVal);
         }
 
         ctx.Toast(targetsPlaced > 0
@@ -363,16 +415,20 @@ public class ScriptEngine
         OrderType orderType, decimal? limitPrice, decimal? stopPrice)
     {
         if (qty <= 0) return;
-        var account = await ctx.Broker.GetAccountSummaryAsync(ctx.AccountId);
+        var account = ctx.Account ?? await ctx.Broker.GetAccountSummaryAsync(ctx.AccountId);
+        var isExt = IsOutsideRegularHours(DateTime.UtcNow);
         var req = new OrderRequest
         {
             AccountId  = ctx.AccountId,
             Symbol     = ctx.Symbol,
+            AssetType  = SymbolClassifier.AssetTypeFor(ctx.Symbol),
             Side       = side,
             Quantity   = qty,
             OrderType  = orderType,
             LimitPrice = limitPrice,
             StopPrice  = stopPrice,
+            ExtendedHours = isExt,
+            Session    = isExt ? OrderSession.Seamless : OrderSession.Normal,
             Source     = OrderSource.HotButton,
         };
         var (ok, msg) = await ctx.Orders.SubmitOrderAsync(req, account, ctx.Quote);
@@ -386,12 +442,57 @@ public class ScriptEngine
         return pos;
     }
 
+    private static Task<Position?> ResolvePositionAsync(ScriptContext ctx) =>
+        IsPositionForSymbol(ctx.Position, ctx.Symbol)
+            ? Task.FromResult(ctx.Position)
+            : FetchPositionAsync(ctx);
+
+    private static bool IsPositionForSymbol(Position? position, string symbol) =>
+        position != null &&
+        string.Equals(position.Symbol, symbol, StringComparison.OrdinalIgnoreCase);
+
+    private static (OrderType OrderType, decimal? Price) ResolveFlattenOrder(OrderSide side, Quote? quote)
+    {
+        if (!IsOutsideRegularHours(DateTime.UtcNow))
+            return (OrderType.Market, null);
+
+        decimal? price = side == OrderSide.Sell
+            ? quote?.Bid > 0 ? quote.Bid : null
+            : quote?.Ask > 0 ? quote.Ask : null;
+
+        return (OrderType.Limit, price);
+    }
+
+    private static (OrderType OrderType, decimal? LimitPrice) ResolveProtectiveStopOrder(
+        OrderSide exitSide, decimal stopPrice) => (OrderType.StopMarket, null);
+
+    private static bool IsOutsideRegularHours(DateTime utcNow)
+    {
+        var etZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        var et = TimeZoneInfo.ConvertTimeFromUtc(utcNow, etZone);
+        if (et.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return true;
+        var t = et.TimeOfDay;
+        return t < new TimeSpan(9, 30, 0) || t >= new TimeSpan(16, 0, 0);
+    }
+
     // ── Size resolution ───────────────────────────────────────────────────────
 
     private static int ResolveSize(SizeExpr? s, int defaultSize,
-        Position? pos, Quote? quote, decimal? entryPrice, decimal? stopPrice)
+        Position? pos, Quote? quote, decimal? entryPrice, decimal? stopPrice,
+        IReadOnlyDictionary<string, decimal>? vars = null)
     {
         if (s == null) return defaultSize;
+        if (s is VarSizeExpr ve)
+        {
+            if (vars?.TryGetValue(ve.VarName, out var amount) == true && amount > 0)
+            {
+                return entryPrice > 0    ? (int)(amount / entryPrice.Value)
+                    : quote?.Last > 0 ? (int)(amount / quote.Last)
+                    : defaultSize;
+            }
+            return defaultSize;
+        }
+
         return s.Kind switch
         {
             SizeKind.UseDefault => defaultSize,
@@ -461,6 +562,9 @@ public class ScriptEngine
 
         if (tok.StartsWith('$') && decimal.TryParse(tok[1..], out var dv))
             return (pos++, new SizeExpr(SizeKind.Dollar, dv)).Item2;
+
+        if (tok.StartsWith('$') && tok.Length > 1)
+            return (pos++, new VarSizeExpr(tok[1..])).Item2;
 
         return tok switch
         {
@@ -541,6 +645,11 @@ internal class SizeExpr(SizeKind kind, decimal value)
 {
     public SizeKind Kind  { get; } = kind;
     public decimal  Value { get; } = value;
+}
+
+internal sealed class VarSizeExpr(string varName) : SizeExpr(SizeKind.Dollar, 0)
+{
+    public string VarName { get; } = varName;
 }
 
 internal class PriceExpr(PriceRef @ref, decimal offset)

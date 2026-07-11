@@ -40,9 +40,17 @@ public class OrderStateMachineTests
     }
 
     [Fact]
-    public void IsWorking_TrueForWorkingAndPartialFill()
+    public void IsWorking_TrueForEveryNonTerminalBrokerOrderState()
     {
-        foreach (var s in new[] { OrderStatus.Working, OrderStatus.PartiallyFilled, OrderStatus.Accepted })
+        foreach (var s in new[]
+                 {
+                     OrderStatus.Submitted,
+                     OrderStatus.Accepted,
+                     OrderStatus.Working,
+                     OrderStatus.PartiallyFilled,
+                     OrderStatus.CancelPending,
+                     OrderStatus.ReplacePending
+                 })
         {
             MakeState(s).IsWorking.Should().BeTrue();
         }

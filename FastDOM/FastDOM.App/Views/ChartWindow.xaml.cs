@@ -52,7 +52,8 @@ public partial class ChartWindow : Window
     {
         _viewModel.TradingArmed = ArmToggle.IsChecked == true;
         ArmToggle.Content = _viewModel.TradingArmed ? "TRADE ARMED" : "TRADE DISARMED";
-        ArmToggle.Background = _viewModel.TradingArmed ? System.Windows.Media.Brushes.DarkRed : System.Windows.Media.Brushes.DarkSlateGray;
+        ArmToggle.Background = _viewModel.TradingArmed ? System.Windows.Media.Brushes.Red : System.Windows.Media.Brushes.White;
+        ArmToggle.Foreground = _viewModel.TradingArmed ? System.Windows.Media.Brushes.White : System.Windows.Media.Brushes.Black;
         _viewModel.TradeStatus = _viewModel.TradingArmed ? "Double-click chart to stage a price" : "Chart trading disarmed";
     }
     private void TradeInput_Changed(object sender, SelectionChangedEventArgs e) { if (SideBox?.SelectedItem is OrderSide side) _viewModel.TradeSide = side; if (TypeBox?.SelectedItem is OrderType type) _viewModel.TradeOrderType = type; }

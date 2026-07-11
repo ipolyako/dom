@@ -4,7 +4,7 @@
         <Border DockPanel.Dock="Top" Background="#0D0D0D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,5">
             <StackPanel Orientation="Horizontal">
                 <TextBox x:Name="SymbolBox" Text="{Binding Symbol}" Width="100" CharacterCasing="Upper" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" KeyDown="SymbolBox_KeyDown" GotKeyboardFocus="SymbolBox_GotKeyboardFocus" PreviewMouseLeftButtonDown="SymbolBox_PreviewMouseLeftButtonDown"/>
-                <ComboBox ItemsSource="{Binding Timeframes}" SelectedItem="{Binding SelectedTimeframe}" Width="110" Margin="7,0" SelectionChanged="Timeframe_Changed"/>
+                <ComboBox ItemsSource="{Binding Timeframes}" SelectedItem="{Binding SelectedTimeframe}" Width="110" Margin="7,0" SelectionChanged="Timeframe_Changed" Background="White" Foreground="Black"/>
                 <CheckBox Content="Extended" IsChecked="{Binding IncludeExtendedHours}" VerticalAlignment="Center" Margin="6,0" Click="Extended_Click"/>
                 <Button Content="Refresh" Width="70" Margin="8,0,3,0" Click="Refresh_Click"/><Button Content="Latest" Width="70" Margin="3,0" Click="Latest_Click"/>
                 <CheckBox x:Name="Ema9Toggle" Content="EMA9" IsChecked="True" Margin="12,0,2,0" Click="Indicator_Click"/>
@@ -18,11 +18,11 @@
         </Border>
         <Border DockPanel.Dock="Top" Background="#11171B" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,4">
             <StackPanel Orientation="Horizontal">
-                <ToggleButton x:Name="ArmToggle" Content="TRADE DISARMED" Width="125" Background="#37474F" Click="Arm_Click"/>
-                <TextBlock Text="Side" VerticalAlignment="Center" Margin="12,0,4,0"/><ComboBox x:Name="SideBox" Width="70" SelectionChanged="TradeInput_Changed"/>
-                <TextBlock Text="Qty" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox x:Name="QuantityBox" Width="70" Text="{Binding TradeQuantity}" VerticalContentAlignment="Center"/>
-                <TextBlock Text="Type" VerticalAlignment="Center" Margin="10,0,4,0"/><ComboBox x:Name="TypeBox" Width="100" SelectionChanged="TradeInput_Changed"/>
-                <TextBlock Text="Price" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox Width="82" Text="{Binding StagedPrice, StringFormat=F2}" IsReadOnly="True" Foreground="#FFFFD54F"/>
+                <ToggleButton x:Name="ArmToggle" Content="TRADE DISARMED" Width="125" Background="White" Foreground="Black" FontWeight="Bold" Click="Arm_Click"/>
+                <TextBlock Text="Side" VerticalAlignment="Center" Margin="12,0,4,0"/><ComboBox x:Name="SideBox" Width="70" SelectionChanged="TradeInput_Changed" Background="White" Foreground="Black"/>
+                <TextBlock Text="Qty" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox x:Name="QuantityBox" Width="70" Text="{Binding TradeQuantity}" VerticalContentAlignment="Center" Background="White" Foreground="Black"/>
+                <TextBlock Text="Type" VerticalAlignment="Center" Margin="10,0,4,0"/><ComboBox x:Name="TypeBox" Width="100" SelectionChanged="TradeInput_Changed" Background="White" Foreground="Black"/>
+                <TextBlock Text="Price" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox Width="82" Text="{Binding StagedPrice, StringFormat=F2}" IsReadOnly="True" Background="White" Foreground="Black"/>
                 <Button Content="PLACE" Width="80" Margin="8,0,3,0" Background="#1565C0" Click="Place_Click"/>
                 <Button Content="BUY MKT" Width="80" Margin="3,0" Background="#1B5E20" Click="BuyMarket_Click"/>
                 <Button Content="SELL MKT" Width="80" Margin="3,0" Background="#B71C1C" Click="SellMarket_Click"/>

@@ -93,13 +93,9 @@
                         Click="OrdersButton_Click"
                         ToolTip="View and cancel open orders"/>
 
-                <Border Grid.Column="7" Width="68" Height="26" Margin="4,0,0,0"
-                        CornerRadius="2" Background="#FF1565C0" Cursor="Hand"
-                        ToolTip="Open Schwab gainers, losers, and most-active stocks"
-                        MouseLeftButtonUp="MoversButton_Click">
-                    <TextBlock Text="Movers" FontWeight="Bold" Foreground="White"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Border>
+                <Button Grid.Column="7" Content="Movers" Width="80" Margin="4,0"
+                        Click="MoversButton_Click"
+                        ToolTip="Open Schwab gainers, losers, and most-active stocks"/>
 
                 <!-- Hotkey settings button -->
                 <Button Grid.Column="8" Content="⚙" Width="26" Height="26" Margin="2,0,0,0"

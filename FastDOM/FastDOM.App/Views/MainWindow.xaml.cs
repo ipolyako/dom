@@ -150,7 +150,7 @@ public partial class MainWindow : Window
         }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
-    private void MoversButton_Click(object sender, MouseButtonEventArgs e)
+    private void MoversButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {

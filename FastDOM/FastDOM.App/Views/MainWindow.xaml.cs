@@ -31,6 +31,12 @@ public partial class MainWindow : Window
     private Thread? _bookmapThread;
     private Dispatcher? _bookmapDispatcher;
     private BookmapWindow? _bookmapWindow;
+    private readonly object _chartThreadGate = new();
+    private readonly Queue<(string Symbol, string AccountId, int Quantity)> _pendingCharts = [];
+    private readonly HashSet<ChartWindow> _chartWindows = [];
+    private Thread? _chartThread;
+    private Dispatcher? _chartDispatcher;
+    private bool _chartShutdownRequested;
     private MoversWindow? _moversWindow;
 
     public MainWindow(
@@ -182,14 +188,81 @@ public partial class MainWindow : Window
     {
         try
         {
-            var symbol = ActiveDomSymbol();
-            var window = new ChartWindow(_services.GetRequiredService<ChartViewModel>(), symbol, _vm.SelectedAccountId, _vm.ShareSize, _vm.HotButtonsViewModel) { Owner = this };
-            window.Show();
+            lock (_chartThreadGate)
+            {
+                _pendingCharts.Enqueue((ActiveDomSymbol(), _vm.SelectedAccountId, _vm.ShareSize));
+                if (_chartDispatcher != null)
+                {
+                    _chartDispatcher.BeginInvoke(OpenPendingChartWindows, DispatcherPriority.Normal);
+                    return;
+                }
+                if (_chartThread != null) return;
+
+                _chartShutdownRequested = false;
+                _chartThread = new Thread(ChartThreadMain)
+                {
+                    Name = "FastDOM Chart UI",
+                    IsBackground = true
+                };
+                _chartThread.SetApartmentState(ApartmentState.STA);
+                _chartThread.Start();
+            }
         }
         catch (Exception ex)
         {
             _vm.LastToast = $"Chart failed: {ex.Message}";
             MessageBox.Show(this, ex.ToString(), "Chart failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ChartThreadMain()
+    {
+        SynchronizationContext.SetSynchronizationContext(
+            new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+
+        lock (_chartThreadGate)
+        {
+            _chartDispatcher = Dispatcher.CurrentDispatcher;
+            if (_chartShutdownRequested)
+            {
+                _pendingCharts.Clear();
+                _chartDispatcher = null;
+                _chartThread = null;
+                return;
+            }
+        }
+
+        OpenPendingChartWindows();
+        Dispatcher.Run();
+
+        lock (_chartThreadGate)
+        {
+            _chartWindows.Clear();
+            _chartDispatcher = null;
+            _chartThread = null;
+        }
+    }
+
+    private void OpenPendingChartWindows()
+    {
+        while (true)
+        {
+            (string Symbol, string AccountId, int Quantity) request;
+            lock (_chartThreadGate)
+            {
+                if (_chartShutdownRequested || _pendingCharts.Count == 0) return;
+                request = _pendingCharts.Dequeue();
+            }
+
+            var window = new ChartWindow(
+                _services.GetRequiredService<ChartViewModel>(),
+                request.Symbol,
+                request.AccountId,
+                request.Quantity,
+                _vm.HotButtonsViewModel);
+            _chartWindows.Add(window);
+            window.Closed += (_, _) => _chartWindows.Remove(window);
+            window.Show();
         }
     }
 
@@ -441,9 +514,39 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        CloseChartWindows();
         CloseBookmapWindow();
         _config.SaveAll();
         base.OnClosed(e);
+    }
+
+    private void CloseChartWindows()
+    {
+        Dispatcher? dispatcher;
+        Thread? thread;
+        lock (_chartThreadGate)
+        {
+            _chartShutdownRequested = true;
+            _pendingCharts.Clear();
+            dispatcher = _chartDispatcher;
+            thread = _chartThread;
+        }
+
+        if (dispatcher != null)
+        {
+            try
+            {
+                dispatcher.Invoke(() =>
+                {
+                    foreach (var window in _chartWindows.ToArray()) window.Close();
+                    Dispatcher.CurrentDispatcher.InvokeShutdown();
+                });
+            }
+            catch (TaskCanceledException) { }
+            catch (InvalidOperationException) { }
+        }
+
+        if (thread is { IsAlive: true }) thread.Join(TimeSpan.FromSeconds(2));
     }
 
     private void CloseBookmapWindow()

@@ -2,7 +2,7 @@
         Title="FastDOM — Trading Chart" Width="1250" Height="780" MinWidth="760" MinHeight="480" Background="#090D10">
     <Window.Resources>
         <Style x:Key="ChartArmStyle" TargetType="ToggleButton">
-            <Setter Property="Background" Value="White"/><Setter Property="Foreground" Value="Black"/><Setter Property="BorderBrush" Value="#707070"/><Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#2E2E2E"/><Setter Property="Foreground" Value="White"/><Setter Property="BorderBrush" Value="#606060"/><Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToggleButton">
                 <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="2">
                     <TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -10,19 +10,26 @@
             </ControlTemplate></Setter.Value></Setter>
         </Style>
         <Style x:Key="ChartComboStyle" TargetType="ComboBox">
-            <Setter Property="Background" Value="White"/><Setter Property="Foreground" Value="Black"/><Setter Property="BorderBrush" Value="#707070"/><Setter Property="MinHeight" Value="24"/>
+            <Setter Property="Background" Value="#2E2E2E"/><Setter Property="Foreground" Value="White"/><Setter Property="BorderBrush" Value="#606060"/><Setter Property="MinHeight" Value="24"/>
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
                 <Grid>
-                    <Border Background="White" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="1"/>
-                    <TextBlock Text="{TemplateBinding SelectionBoxItem}" Foreground="Black" FontFamily="Consolas" Margin="6,0,22,0" VerticalAlignment="Center"/>
-                    <Path Data="M 0 0 L 4 4 L 8 0 Z" Fill="#303030" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                    <Border Background="#2E2E2E" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="1"/>
+                    <ContentPresenter Content="{TemplateBinding SelectionBoxItem}"
+                                      ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                      TextElement.Foreground="White"
+                                      TextElement.FontFamily="Consolas"
+                                      Margin="6,0,22,0"
+                                      HorizontalAlignment="Left"
+                                      VerticalAlignment="Center"
+                                      IsHitTestVisible="False"/>
+                    <Path Data="M 0 0 L 4 4 L 8 0 Z" Fill="White" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,7,0"/>
                     <ToggleButton Background="Transparent" BorderThickness="0" Focusable="False" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" ClickMode="Press" Opacity="0"/>
                     <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False">
-                        <Border Background="White" BorderBrush="#707070" BorderThickness="1" MinWidth="{TemplateBinding ActualWidth}"><ScrollViewer><ItemsPresenter/></ScrollViewer></Border>
+                        <Border Background="#2E2E2E" BorderBrush="#606060" BorderThickness="1" MinWidth="{TemplateBinding ActualWidth}"><ScrollViewer><ItemsPresenter/></ScrollViewer></Border>
                     </Popup>
                 </Grid>
             </ControlTemplate></Setter.Value></Setter>
-            <Style.Resources><Style TargetType="ComboBoxItem"><Setter Property="Background" Value="White"/><Setter Property="Foreground" Value="Black"/><Setter Property="Padding" Value="6,3"/><Style.Triggers><Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#1565C0"/><Setter Property="Foreground" Value="White"/></Trigger></Style.Triggers></Style></Style.Resources>
+            <Style.Resources><Style TargetType="ComboBoxItem"><Setter Property="Background" Value="#2E2E2E"/><Setter Property="Foreground" Value="White"/><Setter Property="Padding" Value="6,3"/><Style.Triggers><Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#1565C0"/><Setter Property="Foreground" Value="White"/></Trigger></Style.Triggers></Style></Style.Resources>
         </Style>
     </Window.Resources>
     <DockPanel>
@@ -45,9 +52,9 @@
             <StackPanel Orientation="Horizontal">
                 <ToggleButton x:Name="ArmToggle" Style="{StaticResource ChartArmStyle}" Content="TRADE DISARMED" Width="125" Click="Arm_Click"/>
                 <TextBlock Text="Side" VerticalAlignment="Center" Margin="12,0,4,0"/><ComboBox x:Name="SideBox" Style="{StaticResource ChartComboStyle}" Width="70" SelectionChanged="TradeInput_Changed"/>
-                <TextBlock Text="Qty" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox x:Name="QuantityBox" Width="70" Text="{Binding TradeQuantity}" VerticalContentAlignment="Center" Background="White" Foreground="Black"/>
+                <TextBlock Text="Qty" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox x:Name="QuantityBox" Width="70" Text="{Binding TradeQuantity}" VerticalContentAlignment="Center" Background="#2E2E2E" Foreground="White" CaretBrush="White"/>
                 <TextBlock Text="Type" VerticalAlignment="Center" Margin="10,0,4,0"/><ComboBox x:Name="TypeBox" Style="{StaticResource ChartComboStyle}" Width="100" SelectionChanged="TradeInput_Changed"/>
-                <TextBlock Text="Price" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox Width="82" Text="{Binding StagedPrice, StringFormat=F2}" IsReadOnly="True" Background="White" Foreground="Black"/>
+                <TextBlock Text="Price" VerticalAlignment="Center" Margin="10,0,4,0"/><TextBox Width="82" Text="{Binding StagedPrice, StringFormat=F2}" IsReadOnly="True" Background="#2E2E2E" Foreground="White"/>
                 <Button Content="PLACE" Width="80" Margin="8,0,3,0" Background="#1565C0" Click="Place_Click"/>
                 <Button Content="BUY MKT" Width="80" Margin="3,0" Background="#1B5E20" Click="BuyMarket_Click"/>
                 <Button Content="SELL MKT" Width="80" Margin="3,0" Background="#B71C1C" Click="SellMarket_Click"/>

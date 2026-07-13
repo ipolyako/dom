@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using System.Windows;
 using FastDOM.App.Services;
 using FastDOM.MarketData.Interfaces;
 using FastDOM.MarketData.Models;
@@ -114,6 +115,7 @@ public partial class ChartViewModel : ObservableObject, IDisposable
                 : candles;
             Status = Candles.Count == 0 ? $"No history returned for {Symbol}" :
                 $"{Symbol} · {SelectedTimeframe.Label} · {Candles.Count:N0} candles · {Candles[^1].Timestamp:g}";
+            RefreshTradingState();
             ChartChanged?.Invoke();
             await RefreshPositionAsync();
         }
@@ -204,11 +206,48 @@ public partial class ChartViewModel : ObservableObject, IDisposable
             bucket / 60, bucket % 60, 0, local.Kind);
     }
 
-    private void OnOrderStateChanged(OrderState _) { RefreshTradingState(); ChartChanged?.Invoke(); }
+    private void OnOrderStateChanged(OrderState _)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null)
+        {
+            RefreshTradingState();
+            ChartChanged?.Invoke();
+            return;
+        }
 
-    private void RefreshTradingState() => WorkingOrders = _orders.ActiveOrders.Values
-        .Where(o => o.IsWorking && string.Equals(o.AccountId, AccountId, StringComparison.OrdinalIgnoreCase) && string.Equals(o.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))
-        .DistinctBy(o => o.BrokerOrderId ?? o.ClientOrderId).ToArray();
+        if (dispatcher.CheckAccess())
+        {
+            RefreshTradingState();
+            ChartChanged?.Invoke();
+        }
+        else
+        {
+            dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
+            {
+                RefreshTradingState();
+                ChartChanged?.Invoke();
+            }));
+        }
+    }
+
+    private void RefreshTradingState()
+    {
+        var allOrders = _orders.ActiveOrders.Values.ToArray();
+        var symbolMatched = allOrders
+            .Where(o => o.IsWorking && OrdersMatchSymbol(Symbol, o.Symbol));
+
+        var scoped = string.IsNullOrWhiteSpace(AccountId)
+            ? symbolMatched
+            : symbolMatched.Where(o => string.Equals(o.AccountId, AccountId, StringComparison.OrdinalIgnoreCase));
+
+        var matching = scoped.ToArray();
+        if (matching.Length == 0 && !string.IsNullOrWhiteSpace(AccountId))
+            matching = symbolMatched.ToArray();
+
+        WorkingOrders = matching
+            .DistinctBy(o => o.BrokerOrderId ?? o.ClientOrderId).ToArray();
+    }
 
     private async Task RefreshPositionAsync()
     {
@@ -299,6 +338,70 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         await RefreshPositionAsync();
         await _hotButtons.ExecuteActionAsync(actionType, Symbol, AccountId, TradeQuantity, CurrentQuote, CurrentPosition);
         TradeStatus = $"Hotkey {actionType} completed"; RefreshTradingState(); ChartChanged?.Invoke();
+    }
+
+    private static bool OrdersMatchSymbol(string displayedSymbol, string orderSymbol)
+    {
+        if (string.IsNullOrWhiteSpace(displayedSymbol) || string.IsNullOrWhiteSpace(orderSymbol)) return false;
+
+        var left = NormalizeOrderSymbol(displayedSymbol);
+        var right = NormalizeOrderSymbol(orderSymbol);
+        if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase)) return true;
+
+        if (!TryParseOption(left, out var leftOption) || !TryParseOption(right, out var rightOption))
+            return false;
+
+        if (!string.Equals(leftOption.Root, rightOption.Root, StringComparison.OrdinalIgnoreCase)
+            || leftOption.Expiry != rightOption.Expiry
+            || leftOption.Side != rightOption.Side)
+            return false;
+
+        if (leftOption.Strike.HasValue && rightOption.Strike.HasValue)
+            return leftOption.Strike == rightOption.Strike;
+
+        return true;
+    }
+
+    private static string NormalizeOrderSymbol(string symbol) =>
+        new string(symbol.Trim().Where(c => !char.IsWhiteSpace(c)).ToArray()).ToUpperInvariant();
+
+    private static bool TryParseOption(string symbol, out (string Root, string Expiry, char Side, int? Strike) value)
+    {
+        value = default;
+        symbol = NormalizeOrderSymbol(symbol);
+        if (string.IsNullOrWhiteSpace(symbol) || symbol.Length < 8) return false;
+
+        // OPTION format:
+        // ROOT + YYMMDD + [C|P] + optional STRIKE
+        // STRIKE may be compact (variable width) or OCC 8-digit fixed width.
+        for (var rootLength = 1; rootLength <= Math.Max(1, symbol.Length - 7); rootLength++)
+        {
+            var suffix = symbol[rootLength..];
+            if (suffix.Length < 7 || !char.IsDigit(suffix[0]) || !char.IsDigit(suffix[5])) continue;
+            if (suffix[6] is not ('C' or 'P')) continue;
+
+            if (!IsDigits(suffix.AsSpan(0, 6))) continue;
+            if (suffix.Length > 7 && !IsDigits(suffix.AsSpan(7))) continue;
+
+            var expiry = suffix[..6];
+            var side = suffix[6];
+            int? strike = null;
+            if (suffix.Length > 7 && int.TryParse(suffix[7..], out var strikeParsed))
+                strike = strikeParsed;
+
+            value = (symbol[..rootLength], expiry, side, strike);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsDigits(ReadOnlySpan<char> value)
+    {
+        foreach (var c in value)
+            if (!char.IsDigit(c))
+                return false;
+        return true;
     }
 
     private static bool IsExtendedSession()

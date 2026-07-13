@@ -11,6 +11,8 @@
                     <ColumnDefinition Width="Auto"/><ColumnDefinition Width="100"/>
                     <ColumnDefinition Width="Auto"/><ColumnDefinition Width="90"/>
                     <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="SYMBOL" Foreground="#7F8C90" VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <TextBox x:Name="SymbolBox" Grid.Column="1" Background="#202A30" Foreground="#00C0FF"
@@ -26,8 +28,17 @@
                 <TextBlock Grid.Column="4" Text="Estimated from Schwab conflated L1 trades • persisted in ROCH.FASTDOM_FOOTPRINT"
                            Foreground="#91A0A8" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                 <TextBlock x:Name="StatusText" Grid.Column="5" Foreground="#FFD54F" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="6" Text="ZOOM" Foreground="#7F8C90" VerticalAlignment="Center" Margin="14,0,4,0"/>
+                <Button Grid.Column="7" Content="−" Width="26" Padding="0" Click="ZoomOut_Click"/>
+                <TextBlock x:Name="ZoomText" Grid.Column="8" Text="100%" Width="42" TextAlignment="Center"
+                           VerticalAlignment="Center" Foreground="#D7E1E6"/>
+                <Button Grid.Column="9" Content="+" Width="26" Padding="0" Click="ZoomIn_Click"/>
             </Grid>
         </Border>
-        <views:FootprintChartControl x:Name="Chart"/>
+        <ScrollViewer x:Name="ChartScroller" HorizontalScrollBarVisibility="Visible"
+                      VerticalScrollBarVisibility="Visible" CanContentScroll="False"
+                      PreviewMouseWheel="ChartScroller_PreviewMouseWheel">
+            <views:FootprintChartControl x:Name="Chart"/>
+        </ScrollViewer>
     </DockPanel>
 </Window>

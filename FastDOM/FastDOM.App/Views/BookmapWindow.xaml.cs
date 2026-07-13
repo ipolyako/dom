@@ -20,6 +20,7 @@ public partial class BookmapWindow : Window
         Height = Math.Max(MinHeight, defaultHeight);
         Top = defaultTop;
         Left = defaultLeft;
+        Loaded += (_, _) => Width = Math.Min(Width, 560);
         AddLockedTab(vm);
     }
 

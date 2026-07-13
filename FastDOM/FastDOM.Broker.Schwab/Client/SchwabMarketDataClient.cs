@@ -363,10 +363,14 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
     {
         var token = await _auth.GetAccessTokenAsync(ct);
         if (string.IsNullOrEmpty(token)) throw new InvalidOperationException("Schwab market-data authentication is unavailable.");
+        var intradayEnd = request.FrequencyType.Equals("daily", StringComparison.OrdinalIgnoreCase)
+            ? ""
+            : $"&endDate={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
         var url = $"{_config.MarketDataApiBase}/pricehistory" +
                   $"?symbol={Uri.EscapeDataString(ToStreamerKey(NormalizeDisplaySymbol(symbol)))}" +
                   $"&periodType={Uri.EscapeDataString(request.PeriodType)}&period={request.Period}" +
                   $"&frequencyType={Uri.EscapeDataString(request.FrequencyType)}&frequency={request.Frequency}" +
+                  intradayEnd +
                   $"&needExtendedHoursData={request.IncludeExtendedHours.ToString().ToLowerInvariant()}&needPreviousClose=true";
         using var message = new HttpRequestMessage(HttpMethod.Get, url);
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -390,7 +394,12 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
                 Volume = ReadLong(candle, "volume")
             });
         }
-        return result.OrderBy(c => c.Timestamp).ToArray();
+        var ordered = result.OrderBy(c => c.Timestamp).ToArray();
+        _logger.LogInformation(
+            "Schwab history {Symbol}: {Count} candles, extended={Extended}, first={First}, last={Last}",
+            symbol, ordered.Length, request.IncludeExtendedHours,
+            ordered.FirstOrDefault()?.Timestamp, ordered.LastOrDefault()?.Timestamp);
+        return ordered;
     }
 
     public async Task<IReadOnlyList<MarketMover>> GetMoversAsync(

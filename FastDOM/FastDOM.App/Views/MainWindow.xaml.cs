@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using FastDOM.App.Services;
 using FastDOM.App.ViewModels;
@@ -19,6 +21,10 @@ namespace FastDOM.App.Views;
 
 public partial class MainWindow : Window
 {
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoActivate = 0x0010;
+
     private readonly MainViewModel _vm;
     private readonly OrderService _orderService;
     private readonly HotkeyService _hotkeyService;
@@ -106,6 +112,55 @@ public partial class MainWindow : Window
         RestoreWorkspace();
         await _vm.ConnectCommand.ExecuteAsync(null);
     }
+
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+        // Allow Windows to finish activating the DOM first, then collect all
+        // FastDOM top-level windows immediately behind it without stealing
+        // keyboard focus from the DOM.
+        Dispatcher.BeginInvoke(BringFastDomWindowsForward, DispatcherPriority.Background);
+    }
+
+    private void BringFastDomWindowsForward()
+    {
+        if (!IsLoaded) return;
+        var mainHandle = new WindowInteropHelper(this).Handle;
+        if (mainHandle == IntPtr.Zero) return;
+        var processId = (uint)Environment.ProcessId;
+
+        EnumWindows((windowHandle, _) =>
+        {
+            if (windowHandle == mainHandle || !IsWindowVisible(windowHandle) || IsIconic(windowHandle))
+                return true;
+            GetWindowThreadProcessId(windowHandle, out var windowProcessId);
+            if (windowProcessId == processId)
+                SetWindowPos(windowHandle, mainHandle, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+            return true;
+        }, IntPtr.Zero);
+    }
+
+    private delegate bool EnumWindowsCallback(IntPtr windowHandle, IntPtr parameter);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr parameter);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr windowHandle);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr windowHandle);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr windowHandle, out uint processId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr windowHandle, IntPtr insertAfter,
+        int x, int y, int width, int height, uint flags);
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {

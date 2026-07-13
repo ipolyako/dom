@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -187,8 +188,9 @@ public class SchwabBrokerClient : IBrokerClient
             }
 
             var body = await resp.Content.ReadAsStringAsync(ct);
-            _logger.LogError("Schwab PlaceOrder failed: {Status} {Body}", resp.StatusCode, body);
-            return OrderResult.Fail(body, (int)resp.StatusCode);
+            var reason = ExtractFailureMessage(body);
+            _logger.LogError("Schwab PlaceOrder failed: {Status} {Reason}", resp.StatusCode, reason);
+            return OrderResult.Fail($"Schwab rejected ({(int)resp.StatusCode}): {reason}", (int)resp.StatusCode);
         }
         catch (Exception ex)
         {
@@ -228,7 +230,8 @@ public class SchwabBrokerClient : IBrokerClient
             }
 
             var body = await resp.Content.ReadAsStringAsync(ct);
-            return OrderResult.Fail(body, (int)resp.StatusCode);
+            var reason = ExtractFailureMessage(body);
+            return OrderResult.Fail($"Schwab cancel rejected ({(int)resp.StatusCode}): {reason}", (int)resp.StatusCode);
         }
         catch (Exception ex)
         {
@@ -309,7 +312,8 @@ public class SchwabBrokerClient : IBrokerClient
             }
 
             var responseBody = await resp.Content.ReadAsStringAsync(ct);
-            return (OrderResult.Fail(responseBody, (int)resp.StatusCode), (int)resp.StatusCode);
+            var reason = ExtractFailureMessage(responseBody);
+            return (OrderResult.Fail($"Schwab replace rejected ({(int)resp.StatusCode}): {reason}", (int)resp.StatusCode), (int)resp.StatusCode);
         }
         catch (Exception ex)
         {
@@ -355,7 +359,8 @@ public class SchwabBrokerClient : IBrokerClient
         if (!delResp.IsSuccessStatusCode && delCode != 409 && delCode != 422)
         {
             var b = await delResp.Content.ReadAsStringAsync(ct);
-            return OrderResult.Fail($"Cancel+place fallback: DELETE failed {delCode} — {b}");
+            var reason = ExtractFailureMessage(b);
+            return OrderResult.Fail($"Cancel+place fallback: DELETE failed {delCode} — {reason}");
         }
         await Task.Delay(150, ct);
 
@@ -378,7 +383,8 @@ public class SchwabBrokerClient : IBrokerClient
             return OrderResult.Ok(newId);
         }
         var postBody = await postResp.Content.ReadAsStringAsync(ct);
-        return OrderResult.Fail($"Cancel+place fallback: POST failed {postCode} — {postBody}", postCode);
+        var postReason = ExtractFailureMessage(postBody);
+        return OrderResult.Fail($"Cancel+place fallback: POST failed {postCode} — {postReason}", postCode);
     }
 
     private async Task<(JsonElement? order, string error, int status)> GetOriginalOrderAsync(
@@ -728,6 +734,23 @@ public class SchwabBrokerClient : IBrokerClient
         var stopId = stopChild.HasValue ? TryGetOrderId(stopChild.Value) : null;
         var limitPrice = limitChild.HasValue ? TryGetDecimal(limitChild.Value, "price") : null;
         var stopPrice = stopChild.HasValue ? TryGetDecimal(stopChild.Value, "stopPrice") : null;
+        var messages = new List<string>();
+        var parentMessage = TryGetOrderMessage(item);
+        if (!string.IsNullOrWhiteSpace(parentMessage))
+            messages.Add(parentMessage);
+        if (limitChild.HasValue)
+        {
+            var limitMessage = TryGetOrderMessage(limitChild.Value);
+            if (!string.IsNullOrWhiteSpace(limitMessage))
+                messages.Add($"Limit: {limitMessage}");
+        }
+        if (stopChild.HasValue)
+        {
+            var stopMessage = TryGetOrderMessage(stopChild.Value);
+            if (!string.IsNullOrWhiteSpace(stopMessage))
+                messages.Add($"Stop: {stopMessage}");
+        }
+        var brokerMessage = messages.Count > 0 ? string.Join(" | ", messages) : null;
 
         return new OrderState
         {
@@ -747,6 +770,7 @@ public class SchwabBrokerClient : IBrokerClient
             StopPrice = stopPrice,
             AverageFillPrice = parsed.AverageFillPrice,
             Status = status,
+            BrokerMessage = brokerMessage,
             Source = OrderSource.System,
             CreatedAtUtc = parsed.CreatedAtUtc,
             LastUpdatedUtc = parsed.LastUpdatedUtc
@@ -784,25 +808,40 @@ public class SchwabBrokerClient : IBrokerClient
             ? oid.GetInt64().ToString()
             : null;
 
-    private static decimal? TryGetDecimal(JsonElement item, string property) =>
-        item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number
-            ? value.GetDecimal()
-            : null;
+    private static decimal? TryGetDecimal(JsonElement item, string property)
+    {
+        if (!item.TryGetProperty(property, out var value))
+            return null;
+
+        return TryGetDecimal(value);
+    }
+
+    private static decimal? TryGetDecimal(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number => value.GetDecimal(),
+            JsonValueKind.String => decimal.TryParse(
+                value.GetString(),
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out var parsed)
+                ? parsed
+                : null,
+            _ => null
+        };
+    }
 
     private static OrderState ParseSingleOrder(string accountId, JsonElement item)
     {
         var brokerId = item.TryGetProperty("orderId", out var oid) && oid.ValueKind == JsonValueKind.Number
                        ? oid.GetInt64().ToString() : "?";
         var status = item.TryGetProperty("status", out var st) ? MapStatus(st.GetString()) : OrderStatus.Unknown;
-        var qty = item.TryGetProperty("quantity", out var q) && q.ValueKind == JsonValueKind.Number
-                  ? (int)q.GetDecimal() : 0;
-        var filled = item.TryGetProperty("filledQuantity", out var fq) && fq.ValueKind == JsonValueKind.Number
-                     ? (int)fq.GetDecimal() : 0;
+        var qty = item.TryGetProperty("quantity", out var q) ? TryGetQuantityValue(q) : 0;
+        var filled = item.TryGetProperty("filledQuantity", out var fq) ? TryGetQuantityValue(fq) : 0;
         var orderType = item.TryGetProperty("orderType", out var ot) ? ot.GetString() : null;
-        var price = item.TryGetProperty("price", out var p) && p.ValueKind == JsonValueKind.Number
-                    ? p.GetDecimal() : (decimal?)null;
-        var stopPrice = item.TryGetProperty("stopPrice", out var sp) && sp.ValueKind == JsonValueKind.Number
-                        ? sp.GetDecimal() : (decimal?)null;
+        var price = TryGetDecimal(item, "price");
+        var stopPrice = TryGetDecimal(item, "stopPrice");
         var (execQty, execAvgPrice) = TryGetExecutionFill(item);
         if (execQty > 0)
             filled = execQty;
@@ -827,9 +866,13 @@ public class SchwabBrokerClient : IBrokerClient
             side = instruction is "BUY" or "BUY_TO_COVER" ? OrderSide.Buy : OrderSide.Sell;
 
             // Legs carry their own quantity when the outer strategy doesn't.
-            if (qty == 0 && leg.TryGetProperty("quantity", out var lq) && lq.ValueKind == JsonValueKind.Number)
-                qty = (int)lq.GetDecimal();
+            if (qty == 0 && leg.TryGetProperty("quantity", out var lq))
+                qty = TryGetQuantityValue(lq);
         }
+
+        var resolvedType = MapOrderType(orderType);
+        if (resolvedType == OrderType.Market && stopPrice.HasValue)
+            resolvedType = price.HasValue ? OrderType.StopLimit : OrderType.StopMarket;
 
         return new OrderState
         {
@@ -840,15 +883,190 @@ public class SchwabBrokerClient : IBrokerClient
             Side          = side,
             QuantityOrdered = qty,
             QuantityFilled = filled,
-            OrderType     = MapOrderType(orderType),
+            OrderType     = resolvedType,
             LimitPrice    = price,
             StopPrice     = stopPrice,
             AverageFillPrice = filled > 0 ? avgFillPrice : null,
             Status        = status,
+            BrokerMessage = TryGetOrderMessage(item),
             Source        = OrderSource.System,
             CreatedAtUtc  = updatedAt.Date == DateTime.UtcNow.Date ? updatedAt : createdAt,
             LastUpdatedUtc = updatedAt
         };
+    }
+
+    private static string? TryGetOrderMessage(JsonElement item)
+    {
+        var candidates = new[]
+        {
+            "statusDescription", "statusReason", "rejectReason", "rejectionReason", "reason", "message",
+            "error", "error_description", "description", "title", "code", "errorCode"
+        };
+        foreach (var key in candidates)
+        {
+            if (!item.TryGetProperty(key, out var value))
+                continue;
+
+            switch (value.ValueKind)
+            {
+                case JsonValueKind.String:
+                    var text = value.GetString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return text;
+                    break;
+                case JsonValueKind.Number:
+                    var num = value.GetRawText();
+                    if (!string.IsNullOrWhiteSpace(num))
+                        return num;
+                    break;
+                case JsonValueKind.Object when key == "error":
+                    if (TryGetNestedText(value, out var nested))
+                        return nested;
+                    break;
+            }
+        }
+
+        if (item.TryGetProperty("errors", out var errorsEl) &&
+            errorsEl.ValueKind == JsonValueKind.Array)
+        {
+            var parts = new List<string>();
+            foreach (var e in errorsEl.EnumerateArray())
+            {
+                var msg = ExtractFailureMessage(e.GetRawText());
+                if (!string.IsNullOrWhiteSpace(msg))
+                    parts.Add(msg);
+            }
+            if (parts.Count > 0) return string.Join("; ", parts);
+        }
+
+        return null;
+    }
+
+    private static bool TryGetNestedText(JsonElement errorObj, out string? text)
+    {
+        if (errorObj.ValueKind != JsonValueKind.Object)
+        {
+            text = null;
+            return false;
+        }
+
+        foreach (var key in new[] { "message", "error", "description", "code", "title" })
+        {
+            if (!errorObj.TryGetProperty(key, out var nested))
+                continue;
+
+            if (nested.ValueKind == JsonValueKind.String)
+            {
+                var n = nested.GetString();
+                if (!string.IsNullOrWhiteSpace(n))
+                {
+                    text = n;
+                    return true;
+                }
+            }
+        }
+
+        text = null;
+        return false;
+    }
+
+    private static string ExtractFailureMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return "Empty response body";
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return ExtractFailureMessage(doc.RootElement);
+        }
+        catch
+        {
+            return body;
+        }
+    }
+
+    private static string ExtractFailureMessage(JsonElement root)
+    {
+        if (TryGetNestedMessage(root, out var message))
+            return message!;
+
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            var messages = new List<string>();
+            foreach (var item in root.EnumerateArray())
+            {
+                if (TryGetNestedMessage(item, out var entry) && !string.IsNullOrWhiteSpace(entry))
+                    messages.Add(entry);
+            }
+            if (messages.Count > 0)
+                return string.Join("; ", messages);
+        }
+
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("errors", out var errorsEl) &&
+            errorsEl.ValueKind == JsonValueKind.Array)
+        {
+            var messages = new List<string>();
+            foreach (var err in errorsEl.EnumerateArray())
+            {
+                if (TryGetNestedMessage(err, out var entry))
+                    messages.Add(entry!);
+            }
+            if (messages.Count > 0)
+                return string.Join("; ", messages);
+        }
+
+        return root.GetRawText();
+    }
+
+    private static bool TryGetNestedMessage(JsonElement root, out string? message)
+    {
+        message = null;
+        if (root.ValueKind != JsonValueKind.Object)
+            return false;
+
+        foreach (var key in new[]
+                 {
+                     "error", "message", "title", "description", "detail", "reason",
+                     "statusDescription", "statusReason", "rejectReason", "rejectionReason",
+                     "error_description", "errorCode"
+                 })
+        {
+            if (!root.TryGetProperty(key, out var value))
+                continue;
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                var text = value.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    message = text;
+                    return true;
+                }
+            }
+
+            if (value.ValueKind == JsonValueKind.Number)
+            {
+                var text = value.GetRawText();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    message = text;
+                    return true;
+                }
+            }
+
+            if (value.ValueKind == JsonValueKind.Object && key == "error")
+            {
+                if (TryGetNestedText(value, out var nested))
+                {
+                    message = nested;
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static (int Quantity, decimal? AveragePrice) TryGetExecutionFill(JsonElement item)
@@ -935,13 +1153,29 @@ public class SchwabBrokerClient : IBrokerClient
         _                         => OrderStatus.Unknown
     };
 
-    private static OrderType MapOrderType(string? s) => s switch
+    private static OrderType MapOrderType(string? s)
     {
-        "LIMIT"      => OrderType.Limit,
-        "STOP"       => OrderType.StopMarket,
-        "STOP_LIMIT" => OrderType.StopLimit,
-        _            => OrderType.Market
-    };
+        if (string.IsNullOrWhiteSpace(s))
+            return OrderType.Market;
+
+        var value = s.Trim().ToUpperInvariant();
+        return value switch
+        {
+            "LIMIT"        => OrderType.Limit,
+            "MARKET"       => OrderType.Market,
+            "MARKET_IF_TOUCHED" => OrderType.MarketableLimit,
+            "STOP"         => OrderType.StopMarket,
+            "STOP_LIMIT"   => OrderType.StopLimit,
+            "MARKETABLE_LIMIT"  => OrderType.MarketableLimit,
+            "BRACKET"      => OrderType.Bracket,
+            "OCO"          => OrderType.OCO,
+            "OSO"          => OrderType.OSO,
+            _ when value.Contains("STOP_LIMIT") => OrderType.StopLimit,
+            _ when value.Contains("STOP") => OrderType.StopMarket,
+            _ when value.Contains("LIMIT") => OrderType.Limit,
+            _ => OrderType.Market
+        };
+    }
 
     public ValueTask DisposeAsync()
     {

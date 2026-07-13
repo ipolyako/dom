@@ -7,11 +7,56 @@ namespace FastDOM.App.Views;
 
 public sealed class FootprintChartControl : FrameworkElement
 {
+    private const double BaseRowHeight = 18;
+    private const double BaseCandleWidth = 116;
+    private const double CandleGap = 18;
+    private const double Header = 36;
+    private const double Footer = 38;
+    private const double Left = 78;
+    private const double Right = 60;
+    private const double LabelInset = 6;
+    private double _zoom = 1.0;
     private IReadOnlyList<FootprintLevel> _levels = [];
     public IReadOnlyList<FootprintLevel> Levels
     {
         get => _levels;
-        set { _levels = value ?? []; InvalidateVisual(); }
+        set { _levels = value ?? []; InvalidateMeasure(); InvalidateVisual(); }
+    }
+
+    public double Zoom
+    {
+        get => _zoom;
+        set
+        {
+            var zoom = Math.Clamp(value, 0.5, 2.5);
+            if (Math.Abs(_zoom - zoom) < 0.001) return;
+            _zoom = zoom;
+            InvalidateMeasure();
+            InvalidateVisual();
+        }
+    }
+
+    public double LatestAnchorY
+    {
+        get
+        {
+            if (Levels.Count == 0) return 0;
+            var prices = Levels.Select(x => x.Price).Distinct().OrderByDescending(x => x).ToArray();
+            var latestBar = Levels.Max(x => x.BarTimeUtc);
+            var anchor = Levels.Where(x => x.BarTimeUtc == latestBar)
+                .OrderByDescending(x => x.TotalVolume).First().Price;
+            var row = Array.IndexOf(prices, anchor);
+            return Header + (row + 0.5) * BaseRowHeight * Zoom;
+        }
+    }
+
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var barCount = Math.Max(1, Levels.Select(x => x.BarTimeUtc).Distinct().Count());
+        var priceCount = Math.Max(8, Levels.Select(x => x.Price).Distinct().Count());
+        var width = Left + barCount * (BaseCandleWidth * Zoom + CandleGap) + Right;
+        var height = Header + priceCount * BaseRowHeight * Zoom + Footer;
+        return new Size(Math.Max(720, width), Math.Max(420, height));
     }
 
     protected override void OnRender(DrawingContext dc)
@@ -26,38 +71,33 @@ public sealed class FootprintChartControl : FrameworkElement
 
         var bars = Levels.GroupBy(x => x.BarTimeUtc).OrderBy(x => x.Key).ToArray();
         var prices = Levels.Select(x => x.Price).Distinct().OrderByDescending(x => x).ToArray();
-        const double header = 36, footer = 38, left = 78, right = 8;
-        var availableHeight = Math.Max(100, ActualHeight - header - footer);
-        var maxRows = Math.Max(8, (int)(availableHeight / 16));
-        if (prices.Length > maxRows)
-        {
-            var anchor = bars[^1].OrderByDescending(x => x.TotalVolume).First().Price;
-            prices = prices.OrderBy(x => Math.Abs(x - anchor)).Take(maxRows).OrderByDescending(x => x).ToArray();
-        }
         var priceIndex = prices.Select((p, i) => (p, i)).ToDictionary(x => x.p, x => x.i);
-        var rowHeight = availableHeight / prices.Length;
-        const double candleWidth = 116;
-        const double candleGap = 18;
-        var slotWidth = candleWidth + candleGap;
-        var plotRight = ActualWidth - right;
-        var totalWidth = bars.Length * slotWidth;
-        var startX = Math.Max(left, plotRight - totalWidth);
+        var rowHeight = BaseRowHeight * Zoom;
+        var candleWidth = BaseCandleWidth * Zoom;
+        var slotWidth = candleWidth + CandleGap;
+        var plotRight = ActualWidth - Right;
+        var startX = Left;
 
         DrawText(dc, "PRICE", 6, 9, Brushes.Gray, 9);
-        DrawText(dc, "BID × ASK", startX + 6, 9, Brushes.Gray, 9);
+        DrawText(dc, "PRICE", plotRight + LabelInset, 9, Brushes.Gray, 9);
+        DrawText(dc, $"BID × ASK    TIME ({TimeZoneInfo.Local.StandardName})", startX + 6, 9, Brushes.Gray, 9);
 
         for (var i = 0; i < prices.Length; i++)
         {
-            var y = header + i * rowHeight;
+            var y = Header + i * rowHeight;
             dc.DrawLine(new Pen(Frozen("#1C2930"), 0.7),
-                new Point(left, y), new Point(plotRight, y));
-            DrawText(dc, FormatPrice(prices[i]), 4, y + 1, Brushes.LightGray, 10);
+                new Point(Left, y), new Point(plotRight, y));
+            var label = FormatPrice(prices[i]);
+            DrawText(dc, label, 4, y + 1, Brushes.LightGray, 10);
+            DrawTextRight(dc, label, plotRight + LabelInset, y + 1, Brushes.LightGray, 10);
         }
+        dc.DrawLine(new Pen(Frozen("#3F4C56"), 1), new Point(Left, Header), new Point(Left, Header + prices.Length * rowHeight));
+        dc.DrawLine(new Pen(Frozen("#3F4C56"), 1), new Point(plotRight, Header), new Point(plotRight, Header + prices.Length * rowHeight));
 
         // A real aligned summary row, rather than floating delta labels.
-        var deltaY = ActualHeight - footer + 3;
+        var deltaY = Header + prices.Length * rowHeight + 3;
         dc.DrawRectangle(Frozen("#10171B"), new Pen(Frozen("#34434B"), 1),
-            new Rect(0, deltaY, ActualWidth, footer - 3));
+            new Rect(0, deltaY, ActualWidth, Footer - 3));
         DrawText(dc, "DELTA", 10, deltaY + 9, Brushes.LightGray, 10);
 
         for (var b = 0; b < bars.Length; b++)
@@ -75,21 +115,21 @@ public sealed class FootprintChartControl : FrameworkElement
             DrawCenteredText(dc, bars[b].Key.ToLocalTime().ToString("HH:mm"),
                 x, candleWidth, 9, Brushes.LightGray, 10);
             dc.DrawLine(new Pen(Frozen("#243239"), 0.8),
-                new Point(x - candleGap / 2, header), new Point(x - candleGap / 2, deltaY));
+                new Point(x - CandleGap / 2, Header), new Point(x - CandleGap / 2, deltaY));
 
             if (visible.Length > 0)
             {
                 var firstRow = visible.Min(level => priceIndex[level.Price]);
                 var lastRow = visible.Max(level => priceIndex[level.Price]);
                 dc.DrawRectangle(null, new Pen(outline, 1.4), new Rect(
-                    x, header + firstRow * rowHeight,
+                    x, Header + firstRow * rowHeight,
                     candleWidth, Math.Max(rowHeight, (lastRow - firstRow + 1) * rowHeight)));
             }
 
             foreach (var level in bar)
             {
                 if (!priceIndex.TryGetValue(level.Price, out var row)) continue;
-                var y = header + row * rowHeight;
+                var y = Header + row * rowHeight;
                 var intensity = (byte)Math.Clamp(24 + 125.0 * level.TotalVolume / maxBarVolume, 24, 149);
                 var color = level.Delta >= 0
                     ? Color.FromArgb(intensity, 0, 96, 82)
@@ -109,7 +149,7 @@ public sealed class FootprintChartControl : FrameworkElement
                     DrawText(dc, $"+{level.UnknownVolume:N0}?", x + candleWidth - 35, y + 1, Brushes.Gold, 7);
             }
 
-            var deltaCell = new Rect(x, deltaY + 2, candleWidth, footer - 7);
+            var deltaCell = new Rect(x, deltaY + 2, candleWidth, Footer - 7);
             dc.DrawRectangle(delta >= 0 ? Frozen("#103525") : Frozen("#3A1717"),
                 new Pen(outline, 0.8), deltaCell);
             DrawCenteredText(dc, delta.ToString("+#,0;-#,0;0"), x, candleWidth,
@@ -124,6 +164,13 @@ public sealed class FootprintChartControl : FrameworkElement
         var formatted = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
             new Typeface("Consolas"), size, brush, 1.0);
         dc.DrawText(formatted, new Point(x, y));
+    }
+
+    private static void DrawTextRight(DrawingContext dc, string text, double x, double y, Brush brush, double size)
+    {
+        var formatted = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            new Typeface("Consolas"), size, brush, 1.0);
+        dc.DrawText(formatted, new Point(x + (50 - formatted.Width), y));
     }
 
     private static void DrawCenteredText(DrawingContext dc, string text, double x, double width,

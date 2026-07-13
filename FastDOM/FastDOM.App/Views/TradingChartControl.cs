@@ -9,6 +9,8 @@ namespace FastDOM.App.Views;
 
 public class TradingChartControl : FrameworkElement
 {
+    private readonly record struct OrderMarker(OrderState Order, decimal Price, string Leg, bool Draggable);
+
     private IReadOnlyList<PriceCandle> _candles = [];
     private decimal?[] _ema9 = [];
     private decimal?[] _ema20 = [];
@@ -24,7 +26,7 @@ public class TradingChartControl : FrameworkElement
     public event Action<IReadOnlyList<OrderState>>? OrderGroupCancelRequested;
     private readonly List<(Rect CancelRect, IReadOnlyList<OrderState> Orders)> _orderCancelTargets = [];
     public event Func<IReadOnlyList<OrderState>, decimal, Task>? OrderMoveRequested;
-    private readonly List<(Rect PillRect, IReadOnlyList<OrderState> Orders)> _orderPillTargets = [];
+    private readonly List<(Rect PillRect, IReadOnlyList<OrderState> Orders, bool Draggable)> _orderPillTargets = [];
     private IReadOnlyList<OrderState>? _dragOrderGroup;
     private decimal? _dragOrderPrice;
     private int _visibleCount = 100;
@@ -74,7 +76,17 @@ public class TradingChartControl : FrameworkElement
         var cancelTarget = _orderCancelTargets.FirstOrDefault(target => target.CancelRect.Contains(point));
         if (cancelTarget.Orders is { Count: > 0 }) { OrderGroupCancelRequested?.Invoke(cancelTarget.Orders); e.Handled = true; return; }
         var pillTarget = _orderPillTargets.FirstOrDefault(target => target.PillRect.Contains(point));
-        if (pillTarget.Orders is { Count: > 0 }) { _dragOrderGroup = pillTarget.Orders; _dragOrderPrice = DisplayOrderPrice(pillTarget.Orders[0]); CaptureMouse(); e.Handled = true; return; }
+        if (pillTarget.Orders is { Count: > 0 })
+        {
+            if (pillTarget.Draggable)
+            {
+                _dragOrderGroup = pillTarget.Orders;
+                _dragOrderPrice = GetGroupDisplayPrice(pillTarget.Orders);
+                CaptureMouse();
+            }
+            e.Handled = true;
+            return;
+        }
         if (e.ClickCount >= 2 && TryPrice(point, out var price)) { PriceSelected?.Invoke(price); e.Handled = true; return; }
         CaptureMouse(); _dragStart = point; _dragBarsBack = _barsBack;
     }
@@ -82,15 +94,21 @@ public class TradingChartControl : FrameworkElement
     {
         var point = e.GetPosition(this); if (!TryPrice(point, out var price)) return;
         var tolerance = (_renderMax - _renderMin) / (decimal)Math.Max(20, ActualHeight / 8);
-        var order = _orders.Where(o => o.IsWorking).OrderBy(o => Math.Abs((DisplayOrderPrice(o) ?? decimal.MaxValue) - price)).FirstOrDefault();
-        if (order is not null && Math.Abs((DisplayOrderPrice(order) ?? decimal.MaxValue) - price) <= tolerance) { OrderCancelRequested?.Invoke(order); e.Handled = true; }
+        var marker = GetVisibleOrderMarkers()
+            .OrderBy(m => Math.Abs(m.Price - price))
+            .FirstOrDefault();
+        if (marker.Order is not null && Math.Abs(marker.Price - price) <= tolerance)
+        {
+            OrderCancelRequested?.Invoke(marker.Order);
+            e.Handled = true;
+        }
     }
     protected override async void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         ReleaseMouseCapture(); _dragStart = null;
         if (_dragOrderGroup is { Count: > 0 } orders && _dragOrderPrice.HasValue)
         {
-            var original = DisplayOrderPrice(orders[0]);
+            var original = GetGroupDisplayPrice(orders);
             var target = _dragOrderPrice.Value;
             try
             {
@@ -134,7 +152,18 @@ public class TradingChartControl : FrameworkElement
         var priceBottom = ActualHeight - bottomAxis - volumeHeight; var plotRight = ActualWidth - rightAxis;
         var count = Math.Min(_visibleCount, _candles.Count); var end = Math.Max(count, _candles.Count - _barsBack); var start = Math.Max(0, end - count);
         var data = _candles.Skip(start).Take(end - start).ToArray(); if (data.Length == 0) return;
-        var min = data.Min(x => x.Low); var max = data.Max(x => x.High); var pad = Math.Max((max - min) * .06m, max * .001m); min -= pad; max += pad;
+        var dataMin = data.Min(x => x.Low);
+        var dataMax = data.Max(x => x.High);
+        var annotation = new List<decimal> { dataMin, dataMax };
+        if (_stagedPrice.HasValue && _stagedPrice > 0) annotation.Add(_stagedPrice.Value);
+        if (_position?.AverageCost is > 0) annotation.Add(_position.AverageCost);
+        foreach (var marker in GetVisibleOrderMarkers().Select(m => m.Price))
+            annotation.Add(marker);
+        var min = annotation.Min();
+        var max = annotation.Max();
+        var pad = Math.Max((max - min) * .06m, max * .001m);
+        if (pad == 0) pad = 0.5m;
+        min -= pad; max += pad;
         var priceHeight = priceBottom - top; double Y(decimal v) => top + (double)((max - v) / Math.Max(.0000001m, max - min)) * priceHeight;
         _renderMin=min;_renderMax=max;_renderTop=top;_renderPriceBottom=priceBottom;_renderPlotRight=plotRight;
         // Reserve two bar slots beyond the newest candle so price action does
@@ -157,6 +186,15 @@ public class TradingChartControl : FrameworkElement
             var y1 = Y(Math.Max(c.Open, c.Close)); var y2 = Y(Math.Min(c.Open, c.Close));
             dc.DrawRectangle(brush, null, new Rect(x - Math.Max(1, barW * .32), y1, Math.Max(2, barW * .64), Math.Max(1, y2 - y1)));
             var vh = (double)c.Volume / maxVol * (volumeHeight - 18); dc.DrawRectangle(brush, null, new Rect(x - Math.Max(1, barW * .3), priceBottom + volumeHeight - vh, Math.Max(2, barW * .6), vh));
+        }
+        var currentPrice = _candles[^1].Close;
+        if (currentPrice >= min && currentPrice <= max)
+        {
+            var currentY = Y(currentPrice);
+            var currentBrush = Frozen("#FFD600");
+            dc.DrawLine(new Pen(currentBrush, 1), new Point(Math.Max(0, plotRight - 12), currentY), new Point(plotRight, currentY));
+            dc.DrawRectangle(currentBrush, null, new Rect(plotRight, currentY - 10, rightAxis, 20));
+            Text(dc, currentPrice.ToString(currentPrice < 10 ? "F3" : "F2"), plotRight + 5, currentY - 8, Brushes.Black, 11);
         }
         var legendX = 8d;
         if (ShowEma9) { DrawLine(dc, data, start, barW, Y, _ema9, Ema9Pen); Text(dc, "EMA 9", legendX, 6, Ema9Pen.Brush, 11); legendX += 54; }
@@ -182,13 +220,20 @@ public class TradingChartControl : FrameworkElement
     {
         if (_position is { IsFlat: false }) Level(dc, _position.AverageCost, $"POS {_position.Quantity:+#;-#} @ {_position.AverageCost:F2}", Frozen("#AB47BC"), min, max, right, y, DashStyles.Solid);
         if (_stagedPrice.HasValue) Level(dc, _stagedPrice.Value, $"STAGED {_stagedPrice:F2}", Frozen("#FFFFD54F"), min, max, right, y, DashStyles.Dash);
-        foreach (var group in _orders.Where(o => o.IsWorking).GroupBy(o => (Price:DisplayOrderPrice(o), o.Side, o.OrderType)).Where(g => g.Key.Price.HasValue))
+        foreach (var group in GetVisibleOrderMarkers().GroupBy(m => new { m.Price, m.Order.Side, m.Leg }))
         {
-            var orders=group.ToArray(); var isDragging=_dragOrderGroup!=null && orders.Any(o=>_dragOrderGroup.Contains(o));
-            var price=isDragging&&_dragOrderPrice.HasValue?_dragOrderPrice.Value:group.Key.Price!.Value; if(price<min||price>max) continue;
-            var total=orders.Sum(o=>o.QuantityRemaining); var count=orders.Length;
-            var buy=group.Key.Side==OrderSide.Buy; var brush=buy?Frozen("#008F68"):Frozen("#B71C35"); var lineBrush=buy?Frozen("#00A97B"):Frozen("#E53950");
-            var type=group.Key.OrderType switch { OrderType.Limit=>"LMT",OrderType.StopMarket=>"STP",OrderType.StopLimit=>"STP LMT",OrderType.MarketableLimit=>"MKT LMT",_=>group.Key.OrderType.ToString().ToUpperInvariant() };
+            var orders = group.Select(m => m.Order).DistinctBy(o => o.BrokerOrderId ?? o.ClientOrderId).ToArray();
+            var isDragging = _dragOrderGroup != null && orders.Any(o => _dragOrderGroup.Contains(o));
+            var price = isDragging && _dragOrderPrice.HasValue ? _dragOrderPrice.Value : group.Key.Price; if (price < min || price > max) continue;
+            var total = orders.Sum(o => o.QuantityRemaining); var count = orders.Length;
+            var buy = group.Key.Side == OrderSide.Buy; var brush = buy ? Frozen("#008F68") : Frozen("#B71C35"); var lineBrush = buy ? Frozen("#00A97B") : Frozen("#E53950");
+            var sampleOrder = orders.FirstOrDefault();
+            var type = group.Key.Leg switch
+            {
+                "TARGET" => "TP",
+                "STOP" => "SL",
+                _ => GetOrderTypeLabel(sampleOrder)
+            };
             var label=$"{(buy?"+":"−")}{total:N0} {type}"+(count>1?$"x{count}":""); var yy=y(price);
             var markerX=right*.66; dc.DrawLine(new Pen(lineBrush,1),new Point(markerX,yy),new Point(right,yy));
             var labelWidth=Measure(label,11)+15; var pillWidth=labelWidth+24; var pill=new Rect(markerX,yy-10,pillWidth,20);
@@ -196,7 +241,7 @@ public class TradingChartControl : FrameworkElement
             var dividerX=pill.Right-23; dc.DrawLine(new Pen(Frozen("#66FFFFFF"),.7),new Point(dividerX,yy-7),new Point(dividerX,yy+7));
             Text(dc,"×",dividerX+7,yy-9,Brushes.White,14);
             _orderCancelTargets.Add((new Rect(dividerX,yy-10,23,20),orders));
-            _orderPillTargets.Add((pill,orders));
+            _orderPillTargets.Add((pill,orders,group.All(o => o.Draggable)));
         }
     }
 
@@ -235,12 +280,36 @@ public class TradingChartControl : FrameworkElement
     private void DrawLiquidity(DrawingContext dc, decimal min, decimal max, double right, Func<decimal, double> y)
     {
         if (_depth is not { HasRealDepth: true }) return;
-        var levels = _depth.Bids.Select(x => (x.Price, x.BidSize, true)).Concat(_depth.Asks.Select(x => (x.Price, x.AskSize, false)))
-            .Where(x => x.Item1 >= min && x.Item1 <= max && x.Item2 > 0).OrderByDescending(x => x.Item2).Take(14).ToArray();
-        var largest = levels.Select(x => x.Item2).DefaultIfEmpty(0).Max(); if (largest <= 0) return;
-        foreach (var (price,size,bid) in levels)
+        var referencePrice = _candles.Count > 0 ? _candles[^1].Close : 0m;
+        if (referencePrice <= 0)
         {
-            var strength = Math.Sqrt((double)size / largest); var color = bid ? Color.FromArgb((byte)(70+150*strength), 0, 210, 150) : Color.FromArgb((byte)(70+150*strength), 255, 75, 65);
+            var bestBid = _depth.Bids.Where(x => x.Price > 0).Select(x => x.Price).DefaultIfEmpty(0).Max();
+            var bestAsk = _depth.Asks.Where(x => x.Price > 0).Select(x => x.Price).DefaultIfEmpty(0).Min();
+            referencePrice = bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2m : Math.Max(bestBid, bestAsk);
+        }
+        if (referencePrice <= 0) return;
+
+        // The chart overlay represents anticipated support/resistance, so its
+        // side is determined by position relative to the current chart price,
+        // not by a potentially stale/crossed bid/ask flag in the depth update.
+        var levels = _depth.Bids.Select(x => (x.Price, Size: x.BidSize))
+            .Concat(_depth.Asks.Select(x => (x.Price, Size: x.AskSize)))
+            .Where(x => x.Price >= min && x.Price <= max && x.Size > 0 && x.Price != referencePrice)
+            .GroupBy(x => x.Price)
+            .Select(g => (Price: g.Key, Size: g.Sum(x => x.Size), IsSupport: g.Key < referencePrice))
+            .OrderByDescending(x => x.Size)
+            .Take(14)
+            .ToArray();
+        var largestSupport = levels.Where(x => x.IsSupport).Select(x => x.Size).DefaultIfEmpty(0).Max();
+        var largestResistance = levels.Where(x => !x.IsSupport).Select(x => x.Size).DefaultIfEmpty(0).Max();
+        foreach (var (price, size, isSupport) in levels)
+        {
+            var sideMaximum = isSupport ? largestSupport : largestResistance;
+            if (sideMaximum <= 0) continue;
+            var strength = Math.Sqrt((double)size / sideMaximum);
+            var color = isSupport
+                ? Color.FromArgb((byte)(55 + 170 * strength), 0, 210, 125)
+                : Color.FromArgb((byte)(55 + 170 * strength), 255, 65, 55);
             var brush = new SolidColorBrush(color); brush.Freeze(); var yy = y(price); dc.DrawRectangle(brush, null, new Rect(0, yy-2-strength*4, right, 4+strength*8)); Text(dc, $"L2 {size:N0}", right-72, yy-7, Brushes.White, 10);
         }
     }
@@ -260,6 +329,45 @@ public class TradingChartControl : FrameworkElement
     private static decimal?[] Vwap(IReadOnlyList<PriceCandle> c) { var r=new decimal?[c.Count]; decimal pv=0,v=0; DateTime? day=null; for(int i=0;i<c.Count;i++){if(day!=c[i].Timestamp.Date){pv=0;v=0;day=c[i].Timestamp.Date;} var vol=Math.Max(0,c[i].Volume);pv+=((c[i].High+c[i].Low+c[i].Close)/3)*vol;v+=vol;r[i]=v>0?pv/v:c[i].Close;}return r; }
     private void Text(DrawingContext dc,string s,double x,double y,Brush b,double size){dc.DrawText(new FormattedText(s,System.Globalization.CultureInfo.InvariantCulture,FlowDirection.LeftToRight,_font,size,b,VisualTreeHelper.GetDpi(this).PixelsPerDip),new Point(x,y));}
     private double Measure(string s,double size)=>new FormattedText(s,System.Globalization.CultureInfo.InvariantCulture,FlowDirection.LeftToRight,_font,size,Brushes.White,VisualTreeHelper.GetDpi(this).PixelsPerDip).Width;
-    private static decimal? DisplayOrderPrice(OrderState order) => order.OrderType is OrderType.StopMarket or OrderType.StopLimit ? order.StopPrice : order.LimitPrice;
+    private decimal? GetGroupDisplayPrice(IReadOnlyList<OrderState> orders)
+    {
+        if (orders.Count == 0) return null;
+        var markers = GetVisibleOrderMarkers();
+        var first = orders[0];
+        var marker = markers.FirstOrDefault(m => ReferenceEquals(m.Order, first));
+        return marker.Order == null ? DisplayOrderPrice(first) : marker.Price;
+    }
+
+    private static string GetOrderTypeLabel(OrderState? order) =>
+        order?.OrderType switch
+        {
+            OrderType.Limit => "LMT",
+            OrderType.StopMarket => "STP",
+            OrderType.StopLimit => "STP LMT",
+            OrderType.MarketableLimit => "MKT LMT",
+            _ => order?.StopPrice is > 0 ? "STP" : order?.OrderType.ToString().ToUpperInvariant() ?? string.Empty
+        };
+
+    private static decimal? DisplayOrderPrice(OrderState order) => order.StopPrice ?? order.LimitPrice;
+    private static IEnumerable<OrderMarker> ExpandOrderIntoMarkers(OrderState order)
+    {
+        if (!order.IsWorking)
+            yield break;
+
+        if (order.OrderType == OrderType.Bracket)
+        {
+            if (order.LimitPrice is > 0m)
+                yield return new(order, order.LimitPrice.Value, "TARGET", false);
+            if (order.StopPrice is > 0m)
+                yield return new(order, order.StopPrice.Value, "STOP", false);
+            yield break;
+        }
+
+        var price = DisplayOrderPrice(order);
+        if (!price.HasValue) yield break;
+        yield return new(order, price.Value, order.OrderType.ToString(), order.OrderType is not (OrderType.Bracket or OrderType.OCO or OrderType.OSO));
+    }
+
+    private IReadOnlyList<OrderMarker> GetVisibleOrderMarkers() => _orders.SelectMany(ExpandOrderIntoMarkers).Where(m => m.Price > 0).ToArray();
     private static SolidColorBrush Frozen(string hex){var b=(SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;b.Freeze();return b;}
 }

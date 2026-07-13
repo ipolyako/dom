@@ -17,7 +17,7 @@
     "TimeInForce": "Day",
     "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
+    "KeyboardShortcut": "Shift+B",
     "DisplayOrder": 0
   },
   {
@@ -255,7 +255,7 @@
   },
   {
     "Id": "secure_position",
-    "Label": "Secure",
+    "Label": "Secure Buy",
     "Color": "#00838F",
     "TextColor": "#FFFFFF",
     "Script": "DIALOG STOP\nSECURE STOP $STOP",
@@ -300,7 +300,7 @@
     "TimeInForce": "Day",
     "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
+    "KeyboardShortcut": "Shift+R",
     "DisplayOrder": 15
   },
   {
@@ -352,5 +352,71 @@
     "IsEnabled": true,
     "KeyboardShortcut": "Ctrl+X",
     "DisplayOrder": 17
+  },
+  {
+    "Id": "risk_sell_5t",
+    "Label": "Risk Sell",
+    "Color": "#C62828",
+    "TextColor": "#FFFFFF",
+    "Script": "DIALOG STOP\nSELL RISK:$300 MKT STOP $STOP\nBRACKET STOP $STOP T1 ENTRY-1R PCT:20 T2 ENTRY-2R PCT:20 T3 ENTRY-3R PCT:20 T4 ENTRY-4R PCT:20 T5 ENTRY-5R PCT:20",
+    "Action": "SellMarket",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "DisplayOrder": 8
+  },
+  {
+    "Id": "risk_sell_simple",
+    "Label": "Risk Sell Simple",
+    "Color": "#D32F2F",
+    "TextColor": "#FFFFFF",
+    "Script": "DIALOG STOP\nSELL RISK:$300 LMT BID-0.10 STOP $STOP\nBRACKET STOP $STOP",
+    "Action": "SellMarket",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "DisplayOrder": 10
+  },
+  {
+    "Id": "secure_sell",
+    "Label": "Secure Sell",
+    "Color": "#AD1457",
+    "TextColor": "#FFFFFF",
+    "Script": "DIALOG STOP\nSECURE STOP $STOP",
+    "Action": "Custom",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "DisplayOrder": 12
+  },
+  {
+    "Id": "cover_10_mkt",
+    "Label": "Cover 10%",
+    "Color": "#00ACC1",
+    "TextColor": "#FFFFFF",
+    "Action": "CoverPercent",
+    "QuantityRule": { "Type": "PercentOfPosition", "PercentOfPosition": 10 },
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "DisplayOrder": 18
+  },
+  {
+    "Id": "cover_25",
+    "Label": "Cover 25%",
+    "Color": "#00897B",
+    "TextColor": "#FFFFFF",
+    "Action": "CoverPercent",
+    "QuantityRule": { "Type": "PercentOfPosition", "PercentOfPosition": 25 },
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "DisplayOrder": 19
+  },
+  {
+    "Id": "cover_50",
+    "Label": "Cover 50%",
+    "Color": "#00796B",
+    "TextColor": "#FFFFFF",
+    "Action": "CoverPercent",
+    "QuantityRule": { "Type": "PercentOfPosition", "PercentOfPosition": 50 },
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "DisplayOrder": 20
   }
 ]

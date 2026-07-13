@@ -19,7 +19,7 @@ namespace FastDOM.Broker.Schwab.Client;
 /// Confirmed endpoints:
 ///   REST L1:  GET /marketdata/v1/quotes?symbols=SPY,NVDA  (single snapshot)
 ///   Streaming: WebSocket URL from GET /trader/v1/userPreference → streamerInfo[0].streamerSocketUrl
-///   Streaming services: LEVELONE_EQUITIES / LEVELONE_OPTIONS (L1),
+///   Streaming services: LEVELONE_EQUITIES / LEVELONE_OPTIONS / LEVELONE_FUTURES (L1),
 ///   NYSE_BOOK / NASDAQ_BOOK / OPTIONS_BOOK (L2 depth)
 ///
 /// Depth-of-book is only available through the streaming WebSocket, not REST.
@@ -70,9 +70,11 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
     public IObservable<AccountActivity> AccountActivityStream => _accountActivitySubject.AsObservable();
     public IObservable<bool> ConnectionStateStream => _connectionSubject.AsObservable();
 
-    // L1 field indices for LEVELONE_EQUITIES / LEVELONE_OPTIONS
+    // L1 field indices are service-specific; the same number can mean a
+    // different value for equities, options, and futures.
     internal const string EquityFields = "0,1,2,3,4,5,8,9,10,11,12,17,18,42";
     internal const string OptionFields = "0,2,3,4,5,6,7,8,15,16,17,18,30,31,32";
+    internal const string FutureFields = "0,1,2,3,4,5,8,9,12,13,14,18,19,20";
 
     private sealed record StreamResponse(int RequestId, string Service, string Command, int Code, string Message);
 
@@ -240,8 +242,10 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
         if (_ws?.State == WebSocketState.Open)
         {
             var option = IsOptionSymbol(symbol);
-            await SendSubscriptionCommandAsync(option ? "LEVELONE_OPTIONS" : "LEVELONE_EQUITIES", "ADD",
-                ToStreamerKey(symbol), option ? OptionFields : EquityFields, ct);
+            var future = IsFutureSymbol(symbol);
+            var service = option ? "LEVELONE_OPTIONS" : future ? "LEVELONE_FUTURES" : "LEVELONE_EQUITIES";
+            var fields = option ? OptionFields : future ? FutureFields : EquityFields;
+            await SendSubscriptionCommandAsync(service, "ADD", ToStreamerKey(symbol), fields, ct);
         }
         else
         {
@@ -539,12 +543,15 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
             depthSymbols = _subscribedDepth.ToArray();
         }
 
-        var equities = quoteSymbols.Where(s => !IsOptionSymbol(s)).Select(ToStreamerKey).Distinct().ToArray();
+        var equities = quoteSymbols.Where(s => !IsOptionSymbol(s) && !IsFutureSymbol(s)).Select(ToStreamerKey).Distinct().ToArray();
         var options = quoteSymbols.Where(IsOptionSymbol).Select(ToStreamerKey).Distinct().ToArray();
+        var futures = quoteSymbols.Where(IsFutureSymbol).Select(ToStreamerKey).Distinct().ToArray();
         if (equities.Length > 0)
             await SendSubscriptionCommandAsync("LEVELONE_EQUITIES", "SUBS", string.Join(',', equities), EquityFields, ct);
         if (options.Length > 0)
             await SendSubscriptionCommandAsync("LEVELONE_OPTIONS", "SUBS", string.Join(',', options), OptionFields, ct);
+        if (futures.Length > 0)
+            await SendSubscriptionCommandAsync("LEVELONE_FUTURES", "SUBS", string.Join(',', futures), FutureFields, ct);
 
         foreach (var symbol in depthSymbols)
             await SendDepthSubscribeAsync(symbol, ct);
@@ -553,6 +560,10 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
     private async Task SendDepthSubscribeAsync(string symbol, CancellationToken ct)
     {
         var key = ToStreamerKey(symbol);
+        // Schwab's public streamer does not expose a futures depth-book
+        // service. Futures DOMs still receive a live L1 ladder.
+        if (IsFutureSymbol(symbol))
+            return;
         if (IsOptionSymbol(symbol))
         {
             await SendSubscriptionCommandAsync("OPTIONS_BOOK", "ADD", key, "0,1,2,3", ct);
@@ -631,8 +642,10 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
         if (_connected)
         {
             var option = IsOptionSymbol(symbol);
-            await SendSubscriptionCommandAsync(option ? "LEVELONE_OPTIONS" : "LEVELONE_EQUITIES", "UNSUBS",
-                ToStreamerKey(symbol), option ? OptionFields : EquityFields, ct);
+            var future = IsFutureSymbol(symbol);
+            var service = option ? "LEVELONE_OPTIONS" : future ? "LEVELONE_FUTURES" : "LEVELONE_EQUITIES";
+            var fields = option ? OptionFields : future ? FutureFields : EquityFields;
+            await SendSubscriptionCommandAsync(service, "UNSUBS", ToStreamerKey(symbol), fields, ct);
         }
     }
 
@@ -644,6 +657,7 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
             _subscribedDepth.Remove(symbol);
         }
         if (!_connected) return;
+        if (IsFutureSymbol(symbol)) return;
         var key = ToStreamerKey(symbol);
         if (IsOptionSymbol(symbol))
             await SendSubscriptionCommandAsync("OPTIONS_BOOK", "UNSUBS", key, "0,1,2,3", ct);
@@ -773,7 +787,7 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
                 foreach (var item in data.EnumerateArray())
                 {
                     var service = item.TryGetProperty("service", out var s) ? s.GetString() : "";
-                    if (service is "LEVELONE_EQUITIES" or "LEVELONE_OPTIONS")
+                    if (service is "LEVELONE_EQUITIES" or "LEVELONE_OPTIONS" or "LEVELONE_FUTURES")
                         ParseL1Data(item);
                     else if (service is "LISTED_BOOK" or "NYSE_BOOK" or "NASDAQ_BOOK" or "OPTIONS_BOOK")
                         ParseDepthData(item);
@@ -821,9 +835,12 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
 
             _quotesBySymbol.TryGetValue(symbol, out var previous);
             var quote = previous != null ? CopyQuote(previous) : new Quote { Symbol = symbol };
-            var hadTrade = service == "LEVELONE_OPTIONS"
-                ? ApplyOptionFields(c, quote)
-                : ApplyEquityFields(c, quote);
+            var hadTrade = service switch
+            {
+                "LEVELONE_OPTIONS" => ApplyOptionFields(c, quote),
+                "LEVELONE_FUTURES" => ApplyFutureFields(c, quote),
+                _ => ApplyEquityFields(c, quote)
+            };
             if (c.TryGetProperty("delayed", out var delayed) && delayed.ValueKind is JsonValueKind.True or JsonValueKind.False)
                 quote.IsDelayed = delayed.GetBoolean();
 
@@ -878,6 +895,25 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
         if (TryGetInt(c, "16", out var bidSize)) quote.BidSize = bidSize;
         if (TryGetInt(c, "17", out var askSize)) quote.AskSize = askSize;
         if (TryGetInt(c, "18", out var lastSize)) quote.LastSize = lastSize;
+        return hadTrade;
+    }
+
+    internal static bool ApplyFutureFields(JsonElement c, Quote quote)
+    {
+        if (TryGetDecimal(c, "1", out var bid) && bid > 0) quote.Bid = bid;
+        if (TryGetDecimal(c, "2", out var ask) && ask > 0) quote.Ask = ask;
+        var hadTrade = TryGetDecimal(c, "3", out var last) && last > 0;
+        if (hadTrade) quote.Last = last;
+        if (TryGetInt(c, "4", out var bidSize)) quote.BidSize = bidSize;
+        if (TryGetInt(c, "5", out var askSize)) quote.AskSize = askSize;
+        if (TryGetLong(c, "8", out var volume)) quote.Volume = volume;
+        if (TryGetInt(c, "9", out var lastSize)) quote.LastSize = lastSize;
+        if (TryGetDecimal(c, "12", out var high)) quote.High = high;
+        if (TryGetDecimal(c, "13", out var low)) quote.Low = low;
+        if (TryGetDecimal(c, "14", out var close)) quote.Close = close;
+        if (TryGetDecimal(c, "18", out var open)) quote.Open = open;
+        if (TryGetDecimal(c, "19", out var change)) quote.NetChange = change;
+        if (TryGetDecimal(c, "20", out var changePct)) quote.NetChangePct = changePct;
         return hadTrade;
     }
 
@@ -1032,6 +1068,9 @@ public class SchwabMarketDataClient : IMarketDataClient, IMarketMoversClient, IP
         symbol = symbol.Trim().ToUpperInvariant();
         return TrySplitOptionSymbol(symbol, out _, out _);
     }
+
+    private static bool IsFutureSymbol(string symbol) =>
+        symbol.TrimStart().StartsWith('/');
 
     private static string ToStreamerKey(string symbol)
     {

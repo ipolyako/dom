@@ -30,6 +30,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ConfigManager _config;
     private readonly BrokerFactory _brokerFactory;
     private readonly AccountSummaryCache _accountCache;
+    private readonly DomSymbolLinkService _domSymbolLink;
     private readonly DispatcherTimer _statusTimer;
     private readonly DispatcherTimer _accountSyncTimer;
     private bool _accountSyncInFlight;
@@ -90,6 +91,7 @@ public partial class MainViewModel : ObservableObject
         OrderTicketViewModel ticketVm,
         WatchlistViewModel watchlistVm,
         DepthMapViewModel depthMapVm,
+        DomSymbolLinkService domSymbolLink,
         AccountSummaryCache accountCache)
     {
         _logger = logger;
@@ -102,6 +104,7 @@ public partial class MainViewModel : ObservableObject
         _config = config;
         _brokerFactory = brokerFactory;
         _accountCache = accountCache;
+        _domSymbolLink = domSymbolLink;
 
         DomViewModel = domVm;
         PositionViewModel = posVm;
@@ -349,6 +352,9 @@ public partial class MainViewModel : ObservableObject
     {
         if (string.IsNullOrEmpty(SelectedSymbol)) return;
         SelectedSymbol = SymbolClassifier.NormalizeDisplaySymbol(SelectedSymbol);
+        // Linked charts should react to user intent immediately. Position,
+        // account and watchlist refreshes below must not delay visual linking.
+        _domSymbolLink.Publish(SelectedSymbol);
         LogActivity($"Subscribing to {SelectedSymbol}...");
         _latestQuote = null;
         QuoteDisplay = "—";
@@ -357,6 +363,9 @@ public partial class MainViewModel : ObservableObject
         OrderTicketViewModel.LastPrice = null;
         await _domService.SubscribeAsync(SelectedSymbol);
         DomViewModel.Symbol = SelectedSymbol;
+        // A new symbol must behave exactly like pressing the DOM Center button:
+        // rebuild around the latest quote and move the visible scroll position.
+        DomViewModel.CenterLadderOnLastInView();
         await PositionViewModel.RefreshAsync(SelectedAccountId, SelectedSymbol);
         DomViewModel.SetCurrentPosition(PositionViewModel.CurrentPosition);
         await WatchlistViewModel.ResubscribeAsync();

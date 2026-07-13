@@ -45,6 +45,25 @@ public class SchwabStreamerProtocolTests
     }
 
     [Fact]
+    public void FutureFields_AreDecodedUsingFutureContract()
+    {
+        using var doc = JsonDocument.Parse("""{"1":25750.25,"2":25750.50,"3":25750.25,"4":18,"5":21,"8":123456,"9":2,"12":25800,"13":25500,"14":25600,"18":25625,"19":150.25,"20":0.59}""");
+        var quote = new Quote { Symbol = "/NQ" };
+
+        SchwabMarketDataClient.ApplyFutureFields(doc.RootElement, quote).Should().BeTrue();
+
+        quote.Bid.Should().Be(25750.25m);
+        quote.Ask.Should().Be(25750.50m);
+        quote.Last.Should().Be(25750.25m);
+        quote.BidSize.Should().Be(18);
+        quote.AskSize.Should().Be(21);
+        quote.LastSize.Should().Be(2);
+        quote.Volume.Should().Be(123456);
+        quote.Open.Should().Be(25625m);
+        quote.NetChangePct.Should().Be(0.59m);
+    }
+
+    [Fact]
     public void WholeBookUpdate_ReplacesAbsentLevels()
     {
         var levels = new List<DomLevel>
@@ -67,7 +86,9 @@ public class SchwabStreamerProtocolTests
         SchwabMarketDataClient.EquityFields.Should().Contain("1,2,3,4,5");
         SchwabMarketDataClient.OptionFields.Should().Contain("2,3,4");
         SchwabMarketDataClient.OptionFields.Should().Contain("16,17,18");
+        SchwabMarketDataClient.FutureFields.Should().Contain("1,2,3,4,5");
         SchwabMarketDataClient.EquityFields.Should().NotBe(SchwabMarketDataClient.OptionFields);
+        SchwabMarketDataClient.FutureFields.Should().NotBe(SchwabMarketDataClient.EquityFields);
     }
 
     [Fact]

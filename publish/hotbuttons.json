@@ -4,11 +4,11 @@
     "Label": "Buy MKT",
     "Color": "#1B5E20",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "BUY $AMOUNT MKT",
     "Action": "BuyMarket",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100,
+      "FixedShares": 0,
       "DollarAmount": 0,
       "PercentOfPosition": 0,
       "PercentOfBuyingPower": 0,
@@ -25,7 +25,7 @@
     "TimeInForce": "Day",
     "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
+    "KeyboardShortcut": "Shift\u002BB",
     "DisplayOrder": 0
   },
   {
@@ -33,11 +33,11 @@
     "Label": "Sell MKT",
     "Color": "#B71C1C",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "SELL $AMOUNT MKT",
     "Action": "SellMarket",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100,
+      "FixedShares": 0,
       "DollarAmount": 0,
       "PercentOfPosition": 0,
       "PercentOfBuyingPower": 0,
@@ -62,11 +62,11 @@
     "Label": "Buy Ask",
     "Color": "#2E7D32",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "BUY $AMOUNT LMT ASK",
     "Action": "BuyAsk",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100,
+      "FixedShares": 0,
       "DollarAmount": 0,
       "PercentOfPosition": 0,
       "PercentOfBuyingPower": 0,
@@ -91,11 +91,11 @@
     "Label": "Sell Bid",
     "Color": "#C62828",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "SELL $AMOUNT LMT BID",
     "Action": "SellBid",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100,
+      "FixedShares": 0,
       "DollarAmount": 0,
       "PercentOfPosition": 0,
       "PercentOfBuyingPower": 0,
@@ -120,11 +120,11 @@
     "Label": "Buy Bid",
     "Color": "#388E3C",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "BUY $AMOUNT LMT BID",
     "Action": "BuyBid",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100,
+      "FixedShares": 0,
       "DollarAmount": 0,
       "PercentOfPosition": 0,
       "PercentOfBuyingPower": 0,
@@ -149,11 +149,11 @@
     "Label": "Sell Ask",
     "Color": "#D32F2F",
     "TextColor": "#FFFFFF",
-    "Script": null,
+    "Script": "SELL $AMOUNT LMT ASK",
     "Action": "SellAsk",
     "QuantityRule": {
       "Type": "Fixed",
-      "FixedShares": 100,
+      "FixedShares": 0,
       "DollarAmount": 0,
       "PercentOfPosition": 0,
       "PercentOfBuyingPower": 0,
@@ -197,47 +197,18 @@
     },
     "OrderType": "Limit",
     "TimeInForce": "Day",
-    "RequireConfirmation": true,
+    "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
+    "KeyboardShortcut": "Ctrl\u002BZ",
     "DisplayOrder": 6
   },
   {
-    "Id": "reverse",
-    "Label": "Reverse",
-    "Color": "#6A1B9A",
+    "Id": "risk_buy_5t",
+    "Label": "Risk Buy",
+    "Color": "#1565C0",
     "TextColor": "#FFFFFF",
-    "Script": null,
-    "Action": "Reverse",
-    "QuantityRule": {
-      "Type": "Fixed",
-      "FixedShares": 0,
-      "DollarAmount": 0,
-      "PercentOfPosition": 0,
-      "PercentOfBuyingPower": 0,
-      "StopDistanceForRisk": 0,
-      "RiskDollars": 0,
-      "RoundToLotSize": true
-    },
-    "PriceRule": {
-      "Type": "DomClickedPrice",
-      "Offset": 0,
-      "ManualPrice": 0
-    },
-    "OrderType": "Limit",
-    "TimeInForce": "Day",
-    "RequireConfirmation": true,
-    "IsEnabled": true,
-    "KeyboardShortcut": null,
-    "DisplayOrder": 7
-  },
-  {
-    "Id": "cancel_sym",
-    "Label": "Cancel Sym",
-    "Color": "#37474F",
-    "TextColor": "#FFFFFF",
-    "Script": null,
-    "Action": "CancelSymbol",
+    "Script": "DIALOG STOP\nBUY RISK:$300 MKT STOP $STOP\nBRACKET STOP $STOP T1 ENTRY\u002B1R PCT:20 T2 ENTRY\u002B2R PCT:20 T3 ENTRY\u002B3R PCT:20 T4 ENTRY\u002B4R PCT:20 T5 ENTRY\u002B5R PCT:20",
+    "Action": "BuyMarket",
     "QuantityRule": {
       "Type": "Fixed",
       "FixedShares": 0,
@@ -257,16 +228,16 @@
     "TimeInForce": "Day",
     "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
-    "DisplayOrder": 8
+    "KeyboardShortcut": "Shift\u002BR",
+    "DisplayOrder": 7
   },
   {
-    "Id": "cancel_all",
-    "Label": "Cancel All",
-    "Color": "#212121",
+    "Id": "sell_10_mkt",
+    "Label": "Sell 10%",
+    "Color": "#00BCD4",
     "TextColor": "#FFFFFF",
-    "Script": null,
-    "Action": "CancelAll",
+    "Script": "SELL PCT:10 MKT",
+    "Action": "SellMarket",
     "QuantityRule": {
       "Type": "Fixed",
       "FixedShares": 0,
@@ -284,9 +255,38 @@
     },
     "OrderType": "Limit",
     "TimeInForce": "Day",
-    "RequireConfirmation": true,
+    "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
+    "KeyboardShortcut": "Ctrl\u002BJ",
+    "DisplayOrder": 8
+  },
+  {
+    "Id": "risk_buy_simple",
+    "Label": "Risk Buy Simple",
+    "Color": "#1976D2",
+    "TextColor": "#FFFFFF",
+    "Script": "DIALOG STOP\nBUY RISK:$300 LMT ASK\u002B0.10 STOP $STOP\nBRACKET STOP $STOP",
+    "Action": "BuyMarket",
+    "QuantityRule": {
+      "Type": "Fixed",
+      "FixedShares": 0,
+      "DollarAmount": 0,
+      "PercentOfPosition": 0,
+      "PercentOfBuyingPower": 0,
+      "StopDistanceForRisk": 0,
+      "RiskDollars": 0,
+      "RoundToLotSize": true
+    },
+    "PriceRule": {
+      "Type": "DomClickedPrice",
+      "Offset": 0,
+      "ManualPrice": 0
+    },
+    "OrderType": "Limit",
+    "TimeInForce": "Day",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "KeyboardShortcut": "Shift\u002BE",
     "DisplayOrder": 9
   },
   {
@@ -315,8 +315,37 @@
     "TimeInForce": "Day",
     "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
+    "KeyboardShortcut": "Ctrl\u002BK",
     "DisplayOrder": 10
+  },
+  {
+    "Id": "secure_position",
+    "Label": "Secure Buy",
+    "Color": "#00838F",
+    "TextColor": "#FFFFFF",
+    "Script": "DIALOG STOP\nSECURE STOP $STOP",
+    "Action": "Custom",
+    "QuantityRule": {
+      "Type": "Fixed",
+      "FixedShares": 0,
+      "DollarAmount": 0,
+      "PercentOfPosition": 0,
+      "PercentOfBuyingPower": 0,
+      "StopDistanceForRisk": 0,
+      "RiskDollars": 0,
+      "RoundToLotSize": true
+    },
+    "PriceRule": {
+      "Type": "DomClickedPrice",
+      "Offset": 0,
+      "ManualPrice": 0
+    },
+    "OrderType": "Limit",
+    "TimeInForce": "Day",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "KeyboardShortcut": "Shift\u002BD1",
+    "DisplayOrder": 11
   },
   {
     "Id": "sell_50",
@@ -344,36 +373,7 @@
     "TimeInForce": "Day",
     "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
-    "DisplayOrder": 11
-  },
-  {
-    "Id": "sell_100",
-    "Label": "Sell 100%",
-    "Color": "#B71C1C",
-    "TextColor": "#FFFFFF",
-    "Script": null,
-    "Action": "SellPercent",
-    "QuantityRule": {
-      "Type": "PercentOfPosition",
-      "FixedShares": 0,
-      "DollarAmount": 0,
-      "PercentOfPosition": 100,
-      "PercentOfBuyingPower": 0,
-      "StopDistanceForRisk": 0,
-      "RiskDollars": 0,
-      "RoundToLotSize": true
-    },
-    "PriceRule": {
-      "Type": "DomClickedPrice",
-      "Offset": 0,
-      "ManualPrice": 0
-    },
-    "OrderType": "Limit",
-    "TimeInForce": "Day",
-    "RequireConfirmation": false,
-    "IsEnabled": true,
-    "KeyboardShortcut": null,
+    "KeyboardShortcut": "Ctrl\u002BL",
     "DisplayOrder": 12
   },
   {
@@ -402,15 +402,73 @@
     "TimeInForce": "Day",
     "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
+    "KeyboardShortcut": "Shift\u002BD0",
     "DisplayOrder": 13
   },
   {
-    "Id": "sell_10_mkt",
-    "Label": "Sell 10%",
-    "Color": "#00BCD4",
+    "Id": "reverse",
+    "Label": "Reverse",
+    "Color": "#6A1B9A",
     "TextColor": "#FFFFFF",
-    "Script": "SELL PCT:10 MKT",
+    "Script": null,
+    "Action": "Reverse",
+    "QuantityRule": {
+      "Type": "Fixed",
+      "FixedShares": 0,
+      "DollarAmount": 0,
+      "PercentOfPosition": 0,
+      "PercentOfBuyingPower": 0,
+      "StopDistanceForRisk": 0,
+      "RiskDollars": 0,
+      "RoundToLotSize": true
+    },
+    "PriceRule": {
+      "Type": "DomClickedPrice",
+      "Offset": 0,
+      "ManualPrice": 0
+    },
+    "OrderType": "Limit",
+    "TimeInForce": "Day",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "KeyboardShortcut": null,
+    "DisplayOrder": 14
+  },
+  {
+    "Id": "cancel_sym",
+    "Label": "Cancel Sym",
+    "Color": "#37474F",
+    "TextColor": "#FFFFFF",
+    "Script": null,
+    "Action": "CancelSymbol",
+    "QuantityRule": {
+      "Type": "Fixed",
+      "FixedShares": 0,
+      "DollarAmount": 0,
+      "PercentOfPosition": 0,
+      "PercentOfBuyingPower": 0,
+      "StopDistanceForRisk": 0,
+      "RiskDollars": 0,
+      "RoundToLotSize": true
+    },
+    "PriceRule": {
+      "Type": "DomClickedPrice",
+      "Offset": 0,
+      "ManualPrice": 0
+    },
+    "OrderType": "Limit",
+    "TimeInForce": "Day",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "KeyboardShortcut": "Shift\u002BEscape",
+    "DisplayOrder": 15
+  },
+  {
+    "Id": "risk_sell_5t",
+    "Label": "Risk Sell",
+    "Color": "#C62828",
+    "TextColor": "#FFFFFF",
+    "Script": "DIALOG STOP\nSELL RISK:$300 MKT STOP $STOP\nBRACKET STOP $STOP T1 ENTRY-1R PCT:20 T2 ENTRY-2R PCT:20 T3 ENTRY-3R PCT:20 T4 ENTRY-4R PCT:20 T5 ENTRY-5R PCT:20",
     "Action": "SellMarket",
     "QuantityRule": {
       "Type": "Fixed",
@@ -427,20 +485,20 @@
       "Offset": 0,
       "ManualPrice": 0
     },
-    "OrderType": "Market",
+    "OrderType": "Limit",
     "TimeInForce": "Day",
     "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": "Ctrl\u002BX",
-    "DisplayOrder": 14
+    "KeyboardShortcut": "Ctrl\u002BU",
+    "DisplayOrder": 16
   },
   {
-    "Id": "risk_buy_5t",
-    "Label": "Risk Buy",
-    "Color": "#1565C0",
+    "Id": "risk_sell_simple",
+    "Label": "Risk Sell Simple",
+    "Color": "#D32F2F",
     "TextColor": "#FFFFFF",
-    "Script": "DIALOG STOP\nBUY RISK:$300 MKT STOP $STOP\nBRACKET STOP $STOP T1 ENTRY\u002B1R PCT:20 T2 ENTRY\u002B2R PCT:20 T3 ENTRY\u002B3R PCT:20 T4 ENTRY\u002B4R PCT:20 T5 ENTRY\u002B5R PCT:20",
-    "Action": "BuyMarket",
+    "Script": "DIALOG STOP\nSELL RISK:$300 LMT BID-0.10 STOP $STOP\nBRACKET STOP $STOP",
+    "Action": "SellMarket",
     "QuantityRule": {
       "Type": "Fixed",
       "FixedShares": 0,
@@ -456,11 +514,127 @@
       "Offset": 0,
       "ManualPrice": 0
     },
-    "OrderType": "Market",
+    "OrderType": "Limit",
     "TimeInForce": "Day",
     "RequireConfirmation": false,
     "IsEnabled": true,
-    "KeyboardShortcut": null,
-    "DisplayOrder": 15
+    "KeyboardShortcut": "Ctrl\u002BI",
+    "DisplayOrder": 17
+  },
+  {
+    "Id": "secure_sell",
+    "Label": "Secure Sell",
+    "Color": "#AD1457",
+    "TextColor": "#FFFFFF",
+    "Script": "DIALOG STOP\nSECURE STOP $STOP",
+    "Action": "Custom",
+    "QuantityRule": {
+      "Type": "Fixed",
+      "FixedShares": 0,
+      "DollarAmount": 0,
+      "PercentOfPosition": 0,
+      "PercentOfBuyingPower": 0,
+      "StopDistanceForRisk": 0,
+      "RiskDollars": 0,
+      "RoundToLotSize": true
+    },
+    "PriceRule": {
+      "Type": "DomClickedPrice",
+      "Offset": 0,
+      "ManualPrice": 0
+    },
+    "OrderType": "Limit",
+    "TimeInForce": "Day",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "KeyboardShortcut": "Ctrl\u002BD2",
+    "DisplayOrder": 18
+  },
+  {
+    "Id": "cover_10_mkt",
+    "Label": "Cover 10%",
+    "Color": "#00ACC1",
+    "TextColor": "#FFFFFF",
+    "Script": null,
+    "Action": "CoverPercent",
+    "QuantityRule": {
+      "Type": "PercentOfPosition",
+      "FixedShares": 0,
+      "DollarAmount": 0,
+      "PercentOfPosition": 10,
+      "PercentOfBuyingPower": 0,
+      "StopDistanceForRisk": 0,
+      "RiskDollars": 0,
+      "RoundToLotSize": true
+    },
+    "PriceRule": {
+      "Type": "DomClickedPrice",
+      "Offset": 0,
+      "ManualPrice": 0
+    },
+    "OrderType": "Limit",
+    "TimeInForce": "Day",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "KeyboardShortcut": "Shift\u002BF",
+    "DisplayOrder": 19
+  },
+  {
+    "Id": "cover_25",
+    "Label": "Cover 25%",
+    "Color": "#00897B",
+    "TextColor": "#FFFFFF",
+    "Script": null,
+    "Action": "CoverPercent",
+    "QuantityRule": {
+      "Type": "PercentOfPosition",
+      "FixedShares": 0,
+      "DollarAmount": 0,
+      "PercentOfPosition": 25,
+      "PercentOfBuyingPower": 0,
+      "StopDistanceForRisk": 0,
+      "RiskDollars": 0,
+      "RoundToLotSize": true
+    },
+    "PriceRule": {
+      "Type": "DomClickedPrice",
+      "Offset": 0,
+      "ManualPrice": 0
+    },
+    "OrderType": "Limit",
+    "TimeInForce": "Day",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "KeyboardShortcut": "Shift\u002BD",
+    "DisplayOrder": 20
+  },
+  {
+    "Id": "cover_50",
+    "Label": "Cover 50%",
+    "Color": "#00796B",
+    "TextColor": "#FFFFFF",
+    "Script": null,
+    "Action": "CoverPercent",
+    "QuantityRule": {
+      "Type": "PercentOfPosition",
+      "FixedShares": 0,
+      "DollarAmount": 0,
+      "PercentOfPosition": 50,
+      "PercentOfBuyingPower": 0,
+      "StopDistanceForRisk": 0,
+      "RiskDollars": 0,
+      "RoundToLotSize": true
+    },
+    "PriceRule": {
+      "Type": "DomClickedPrice",
+      "Offset": 0,
+      "ManualPrice": 0
+    },
+    "OrderType": "Limit",
+    "TimeInForce": "Day",
+    "RequireConfirmation": false,
+    "IsEnabled": true,
+    "KeyboardShortcut": "Shift\u002BS",
+    "DisplayOrder": 21
   }
 ]

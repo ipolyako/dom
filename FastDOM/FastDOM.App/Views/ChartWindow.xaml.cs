@@ -14,15 +14,20 @@ public partial class ChartWindow : Window
     private readonly ChartViewModel _viewModel;
     private readonly HotkeyService _hotkeyService;
     private readonly ConfigManager _config;
+    private readonly DomSymbolLinkService _domSymbolLink;
+    private readonly IDisposable _domLinkSubscription;
     private readonly DispatcherTimer _renderTimer;
     private bool _loaded;
     private int _renderDirty;
 
     public ChartWindow(ChartViewModel viewModel, string symbol, string accountId, int quantity,
         HotButtonsViewModel hotButtons, HotkeyService hotkeyService, ConfigManager config,
+        DomSymbolLinkService domSymbolLink,
         ChartWindowLayout? savedLayout = null)
     {
         InitializeComponent(); DataContext = _viewModel = viewModel; _hotkeyService = hotkeyService; _config = config;
+        _domSymbolLink = domSymbolLink;
+        _domLinkSubscription = domSymbolLink.Subscribe(OnDomSymbolChanged);
         _viewModel.Symbol = symbol; _viewModel.ConfigureTrading(accountId, quantity, hotButtons);
         SideBox.ItemsSource = new[] { OrderSide.Buy, OrderSide.Sell }; SideBox.SelectedItem = OrderSide.Buy;
         TypeBox.ItemsSource = new[] { OrderType.Limit, OrderType.StopMarket, OrderType.StopLimit }; TypeBox.SelectedItem = OrderType.Limit;
@@ -141,6 +146,7 @@ public partial class ChartWindow : Window
         var text = SymbolBox.Text?.Trim().ToUpperInvariant();
         if (string.IsNullOrWhiteSpace(text)) return;
         e.Handled = true;
+        DomLinkToggle.IsChecked = false;
         await _viewModel.LoadAsync(text);
         UpdateChart(true);
         // Match the main symbol box: leave the loaded symbol selected so the
@@ -150,6 +156,27 @@ public partial class ChartWindow : Window
             SymbolBox.Focus();
             SymbolBox.SelectAll();
         }, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private void OnDomSymbolChanged(string symbol)
+    {
+        _ = Dispatcher.InvokeAsync(async () =>
+        {
+            if (DomLinkToggle.IsChecked != true ||
+                string.Equals(_viewModel.Symbol, symbol, StringComparison.OrdinalIgnoreCase)) return;
+            SymbolBox.Text = symbol;
+            await _viewModel.LoadAsync(symbol);
+            UpdateChart(true);
+        }, DispatcherPriority.Normal);
+    }
+
+    private async void DomLinkToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || DomLinkToggle.IsChecked != true) return;
+        var symbol = _domSymbolLink.CurrentSymbol;
+        SymbolBox.Text = symbol;
+        await _viewModel.LoadAsync(symbol);
+        UpdateChart(true);
     }
 
     private void SymbolBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
@@ -186,5 +213,5 @@ public partial class ChartWindow : Window
     private async void RiskBuySimple_Click(object sender, RoutedEventArgs e) => await _viewModel.ExecuteConfiguredButtonAsync("risk_buy_simple");
     private async void Secure_Click(object sender, RoutedEventArgs e) => await _viewModel.ExecuteConfiguredButtonAsync("secure_position");
     private async Task ShowResultAsync(Func<Task<(bool ok, string message)>> action) { var result = await action(); if (!result.ok) MessageBox.Show(this, result.message, "Chart order", MessageBoxButton.OK, MessageBoxImage.Warning); UpdateChart(false); }
-    protected override void OnClosed(EventArgs e) { _renderTimer.Stop(); _renderTimer.Tick -= RenderTimer_Tick; _viewModel.ChartChanged -= OnChartChanged; _viewModel.Dispose(); base.OnClosed(e); }
+    protected override void OnClosed(EventArgs e) { _domLinkSubscription.Dispose(); _renderTimer.Stop(); _renderTimer.Tick -= RenderTimer_Tick; _viewModel.ChartChanged -= OnChartChanged; _viewModel.Dispose(); base.OnClosed(e); }
 }

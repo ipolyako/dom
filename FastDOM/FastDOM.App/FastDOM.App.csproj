@@ -25,6 +25,7 @@
     <Content Include="..\config-examples\hotbuttons.json"      CopyToOutputDirectory="PreserveNewest" Link="hotbuttons.json"            ExcludeFromSingleFile="true"/>
     <Content Include="..\config-examples\hotkeys.json"         CopyToOutputDirectory="PreserveNewest" Link="hotkeys.json"               ExcludeFromSingleFile="true"/>
     <Content Include="..\..\scripts\fastdom_schwab_token_bridge.py" CopyToOutputDirectory="PreserveNewest" Link="scripts\fastdom_schwab_token_bridge.py" ExcludeFromSingleFile="true"/>
+    <Content Include="..\..\scripts\fastdom_footprint_derby.py" CopyToOutputDirectory="PreserveNewest" Link="scripts\fastdom_footprint_derby.py" ExcludeFromSingleFile="true"/>
    </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FastDOM.Core\FastDOM.Core.csproj" />

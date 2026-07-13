@@ -78,11 +78,21 @@ public partial class ChartViewModel : ObservableObject, IDisposable
 
     public async Task LoadAsync(string? symbol = null)
     {
+        var symbolChanged = !string.IsNullOrWhiteSpace(symbol)
+            && !string.Equals(Symbol, SymbolClassifier.NormalizeDisplaySymbol(symbol), StringComparison.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(symbol)) Symbol = SymbolClassifier.NormalizeDisplaySymbol(symbol);
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _loadCts = new CancellationTokenSource();
         Status = $"Loading {Symbol} {SelectedTimeframe.Label}…";
+        if (symbolChanged)
+        {
+            // Never leave the previous ticker's candles visible under the new
+            // symbol while Schwab history is in flight.
+            Candles = [];
+            CurrentDepth = null;
+            ChartChanged?.Invoke();
+        }
         try
         {
             if (!string.Equals(_subscribedSymbol, Symbol, StringComparison.OrdinalIgnoreCase))
@@ -144,12 +154,54 @@ public partial class ChartViewModel : ObservableObject, IDisposable
         CurrentQuote = quote;
         var list = Candles.ToList();
         var last = list[^1];
-        last.Close = quote.Last;
-        last.High = Math.Max(last.High, quote.Last);
-        last.Low = last.Low <= 0 ? quote.Last : Math.Min(last.Low, quote.Last);
-        if (quote.Volume > 0) last.Volume = quote.Volume;
+        var bucket = LiveCandleBucket(quote.TimestampUtc == default ? DateTime.UtcNow : quote.TimestampUtc);
+        if (bucket > last.Timestamp)
+        {
+            // Price history can lag the live stream. Start the current live bar
+            // immediately instead of mutating the last REST candle forever.
+            last = new PriceCandle
+            {
+                Timestamp = bucket,
+                Open = quote.Last,
+                High = quote.Last,
+                Low = quote.Last,
+                Close = quote.Last,
+                Volume = Math.Max(0, quote.LastSize)
+            };
+            list.Add(last);
+        }
+        else if (bucket == last.Timestamp)
+        {
+            last.Close = quote.Last;
+            last.High = Math.Max(last.High, quote.Last);
+            last.Low = last.Low <= 0 ? quote.Last : Math.Min(last.Low, quote.Last);
+            if (quote.LastSize > 0) last.Volume += quote.LastSize;
+        }
+        else
+        {
+            // Ignore an older/out-of-order tick rather than painting it into a
+            // newer candle.
+            return;
+        }
         Candles = list;
         ChartChanged?.Invoke();
+    }
+
+    private DateTime LiveCandleBucket(DateTime timestampUtc)
+    {
+        var local = timestampUtc.Kind == DateTimeKind.Utc
+            ? timestampUtc.ToLocalTime()
+            : timestampUtc;
+        if (SelectedTimeframe.Request.FrequencyType.Equals("daily", StringComparison.OrdinalIgnoreCase))
+            return local.Date;
+
+        var minutes = SelectedTimeframe.AggregateMinutes > 0
+            ? SelectedTimeframe.AggregateMinutes
+            : Math.Max(1, SelectedTimeframe.Request.Frequency);
+        var minuteOfDay = local.Hour * 60 + local.Minute;
+        var bucket = minuteOfDay / minutes * minutes;
+        return new DateTime(local.Year, local.Month, local.Day,
+            bucket / 60, bucket % 60, 0, local.Kind);
     }
 
     private void OnOrderStateChanged(OrderState _) { RefreshTradingState(); ChartChanged?.Invoke(); }

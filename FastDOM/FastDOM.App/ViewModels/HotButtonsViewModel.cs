@@ -22,6 +22,7 @@ public partial class HotButtonsViewModel : ObservableObject
     private readonly IRiskManager _risk;
     private readonly ConfigManager _config;
     private readonly ScriptEngine _scriptEngine;
+    private readonly SyntheticStopService _syntheticStops;
     private readonly HashSet<string> _flattenInFlight = new(StringComparer.OrdinalIgnoreCase);
 
     // ObservableCollection so the ItemsControl reacts to individual Add/Remove after save.
@@ -39,7 +40,7 @@ public partial class HotButtonsViewModel : ObservableObject
         FullWidthButtons.Clear();
         StrategyButtons.Clear();
 
-        foreach (var b in _config.HotButtons.OrderBy(b => b.DisplayOrder))
+        foreach (var b in _config.HotButtons.OrderBy(StrategyOrderKey))
         {
             Buttons.Add(b);
             if (IsFullWidthActionButton(b))
@@ -51,6 +52,26 @@ public partial class HotButtonsViewModel : ObservableObject
         }
     }
 
+    private static int StrategyOrderKey(HotButtonConfig button) =>
+        button.Id.ToLowerInvariant() switch
+        {
+            "risk_buy_5t" => 700,
+            "risk_sell_5t" => 701,
+            "risk_buy_simple" => 800,
+            "risk_sell_simple" => 801,
+            "secure_position" => 900,
+            "secure_sell" => 901,
+            "cover_10_mkt" => 1000,
+            "sell_10_mkt" => 1001,
+            "cover_25" => 1010,
+            "sell_25" => 1011,
+            "cover_50" => 1020,
+            "sell_50" => 1021,
+            "stop_be" => 1100,
+            "reverse" => 1101,
+            _ => button.DisplayOrder * 100
+        };
+
     private static bool IsFullWidthActionButton(HotButtonConfig button) =>
         string.Equals(button.Id, "flatten", StringComparison.OrdinalIgnoreCase)
         || string.Equals(button.Id, "cancel_sym", StringComparison.OrdinalIgnoreCase)
@@ -61,6 +82,7 @@ public partial class HotButtonsViewModel : ObservableObject
     public HotButtonsViewModel(ILogger<HotButtonsViewModel> logger,
         OrderService orderService, IBrokerClient broker,
         IRiskManager risk, ConfigManager config, ScriptEngine scriptEngine,
+        SyntheticStopService syntheticStops,
         AccountSummaryCache accountCache)
     {
         _logger = logger;
@@ -69,6 +91,7 @@ public partial class HotButtonsViewModel : ObservableObject
         _risk = risk;
         _config = config;
         _scriptEngine = scriptEngine;
+        _syntheticStops = syntheticStops;
         _accountCache = accountCache;
         RefreshButtons();
     }
@@ -124,18 +147,25 @@ public partial class HotButtonsViewModel : ObservableObject
     private string ApplyRiskAmountOverride(HotButtonConfig btn, string script)
     {
         if (RiskAmount <= 0) return script;
-        var isRiskBuy = string.Equals(btn.Id, "risk_buy_5t", StringComparison.OrdinalIgnoreCase)
+        var isRiskButton = string.Equals(btn.Id, "risk_buy_5t", StringComparison.OrdinalIgnoreCase)
             || string.Equals(btn.Id, "risk_buy_simple", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(btn.Id, "risk_sell_5t", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(btn.Id, "risk_sell_simple", StringComparison.OrdinalIgnoreCase)
             || string.Equals(btn.Label, "Risk Buy", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(btn.Label, "Risk Buy Simple", StringComparison.OrdinalIgnoreCase);
-        return isRiskBuy
+            || string.Equals(btn.Label, "Risk Buy Simple", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(btn.Label, "Risk Sell", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(btn.Label, "Risk Sell Simple", StringComparison.OrdinalIgnoreCase);
+        return isRiskButton
             ? Regex.Replace(script, @"RISK:\$\d+(\.\d+)?", $"RISK:${RiskAmount:0.##}", RegexOptions.IgnoreCase)
             : script;
     }
 
     private static bool IsSecureButton(HotButtonConfig btn) =>
         string.Equals(btn.Id, "secure_position", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(btn.Label, "Secure", StringComparison.OrdinalIgnoreCase);
+        || string.Equals(btn.Id, "secure_sell", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(btn.Label, "Secure", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(btn.Label, "Secure Buy", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(btn.Label, "Secure Sell", StringComparison.OrdinalIgnoreCase);
 
     // Maps hotkey ActionType strings → HotButtonAction (shared with HotkeyService.ActionTypeMap).
     private static readonly IReadOnlyDictionary<string, HotButtonAction> _hotkeyMap =
@@ -211,13 +241,23 @@ public partial class HotButtonsViewModel : ObservableObject
                     await _orderService.CancelAllForSymbolAsync(accountId, sym);
                 ToastRequested?.Invoke($"Cancelled all orders ({allSymbols.Count} symbols)");
                 break;
-            case HotButtonAction.SellPercent when position != null:
+            case HotButtonAction.SellPercent when position?.Side == PositionSide.Long:
                 // qty is already resolved to shares by ResolveQuantity — use it directly
                 if (qty > 0)
                     await PlaceAsync(accountId, symbol, OrderSide.Sell, qty, OrderType.Market, null);
                 break;
+            case HotButtonAction.SellPercent:
+                ToastRequested?.Invoke($"No long {symbol} position to reduce");
+                break;
+            case HotButtonAction.CoverPercent when position?.Side == PositionSide.Short:
+                if (qty > 0)
+                    await PlaceAsync(accountId, symbol, OrderSide.Buy, qty, OrderType.Market, null);
+                break;
+            case HotButtonAction.CoverPercent:
+                ToastRequested?.Invoke($"No short {symbol} position to cover");
+                break;
             case HotButtonAction.MoveStopToBreakeven:
-                ToastRequested?.Invoke("Move Stop to BE: select the stop order first");
+                await MoveStopToBreakevenAsync(accountId, symbol, position);
                 break;
             default:
                 _logger.LogWarning("Unhandled hot button action: {Action}", action);
@@ -317,6 +357,54 @@ public partial class HotButtonsViewModel : ObservableObject
                     _flattenInFlight.Remove(key);
             }
         }
+    }
+
+    private async Task MoveStopToBreakevenAsync(string accountId, string symbol, Position? position)
+    {
+        position = await ResolvePositionForSymbolAsync(accountId, symbol, position);
+        if (position == null || position.IsFlat || position.AverageCost <= 0)
+        {
+            ToastRequested?.Invoke($"No {symbol} position available for Stop BE");
+            return;
+        }
+
+        var exitSide = position.Side == PositionSide.Long ? OrderSide.Sell : OrderSide.Buy;
+        var breakEven = SymbolInfo.Default(symbol).RoundToTick(position.AverageCost);
+        var stops = _orderService.ActiveOrders.Values
+            .Where(o => o.IsWorking
+                        && o.AccountId == accountId
+                        && string.Equals(o.Symbol, symbol, StringComparison.OrdinalIgnoreCase)
+                        && o.Side == exitSide
+                        && o.StopPrice.HasValue
+                        && !string.IsNullOrWhiteSpace(o.BrokerOrderId))
+            .DistinctBy(o => o.BrokerOrderId)
+            .ToList();
+
+        if (stops.Count == 0)
+        {
+            _syntheticStops.Arm(accountId, symbol, exitSide, breakEven,
+                message => ToastRequested?.Invoke(message));
+            ToastRequested?.Invoke($"{position.Side} synthetic stop moved to BE @ {breakEven:F2}");
+            return;
+        }
+
+        var moved = 0;
+        foreach (var stop in stops)
+        {
+            var replacement = new OrderReplace
+            {
+                OriginalClientOrderId = stop.ClientOrderId,
+                BrokerOrderId = stop.BrokerOrderId!,
+                NewStopPrice = breakEven,
+                Source = OrderSource.HotButton
+            };
+            var (success, _) = await _orderService.ReplaceOrderAsync(accountId, replacement);
+            if (success) moved++;
+        }
+
+        ToastRequested?.Invoke(moved == stops.Count
+            ? $"{position.Side} stop moved to BE @ {breakEven:F2}"
+            : $"Stop BE moved {moved}/{stops.Count} orders @ {breakEven:F2}");
     }
 
     private async Task RefreshAfterFlattenAsync(string accountId, string symbol, string flattenKey)

@@ -1610,10 +1610,7 @@
           "System.Reactive": "6.0.1"
         },
         "runtime": {
-          "FastDOM.Broker.dll": {
-            "assemblyVersion": "1.0.0",
-            "fileVersion": "1.0.0.0"
-          }
+          "FastDOM.Broker.dll": {}
         }
       },
       "FastDOM.Broker.Alpaca/1.0.0": {
@@ -1627,10 +1624,7 @@
           "System.Text.Json": "8.0.5"
         },
         "runtime": {
-          "FastDOM.Broker.Alpaca.dll": {
-            "assemblyVersion": "1.0.0",
-            "fileVersion": "1.0.0.0"
-          }
+          "FastDOM.Broker.Alpaca.dll": {}
         }
       },
       "FastDOM.Broker.Schwab/1.0.0": {
@@ -1645,10 +1639,7 @@
           "System.Text.Json": "8.0.5"
         },
         "runtime": {
-          "FastDOM.Broker.Schwab.dll": {
-            "assemblyVersion": "1.0.0",
-            "fileVersion": "1.0.0.0"
-          }
+          "FastDOM.Broker.Schwab.dll": {}
         }
       },
       "FastDOM.Core/1.0.0": {
@@ -1657,10 +1648,7 @@
           "System.Reactive": "6.0.1"
         },
         "runtime": {
-          "FastDOM.Core.dll": {
-            "assemblyVersion": "1.0.0",
-            "fileVersion": "1.0.0.0"
-          }
+          "FastDOM.Core.dll": {}
         }
       },
       "FastDOM.Infrastructure/1.0.0": {
@@ -1675,10 +1663,7 @@
           "System.Text.Json": "8.0.5"
         },
         "runtime": {
-          "FastDOM.Infrastructure.dll": {
-            "assemblyVersion": "1.0.0",
-            "fileVersion": "1.0.0.0"
-          }
+          "FastDOM.Infrastructure.dll": {}
         }
       },
       "FastDOM.MarketData/1.0.0": {
@@ -1688,10 +1673,7 @@
           "System.Reactive": "6.0.1"
         },
         "runtime": {
-          "FastDOM.MarketData.dll": {
-            "assemblyVersion": "1.0.0",
-            "fileVersion": "1.0.0.0"
-          }
+          "FastDOM.MarketData.dll": {}
         }
       }
     }

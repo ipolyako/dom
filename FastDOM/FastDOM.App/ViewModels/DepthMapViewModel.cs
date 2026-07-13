@@ -214,7 +214,9 @@ public partial class DepthMapViewModel : ObservableObject, IDisposable
             Rows.Clear();
             LargestOrder = 0;
             VisibleLiquidity = 0;
-            Status = $"{Symbol} · no L2 snapshot (market closed or entitlement unavailable)";
+            Status = SymbolClassifier.IsFutureSymbol(Symbol)
+                ? $"{Symbol} · futures L2 is not available from the Schwab Trader API"
+                : $"{Symbol} · no L2 snapshot (market closed or entitlement unavailable)";
             return;
         }
 

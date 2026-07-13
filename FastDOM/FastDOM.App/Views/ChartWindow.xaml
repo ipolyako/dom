@@ -30,7 +30,59 @@
         <Border DockPanel.Dock="Top" Background="#0D0D0D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,5">
             <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
             <StackPanel x:Name="TopToolbar" Orientation="Horizontal">
-                <TextBox x:Name="SymbolBox" Text="{Binding Symbol, UpdateSourceTrigger=Explicit}" Width="100" CharacterCasing="Upper" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" KeyDown="SymbolBox_KeyDown" GotKeyboardFocus="SymbolBox_GotKeyboardFocus" PreviewMouseLeftButtonDown="SymbolBox_PreviewMouseLeftButtonDown"/>
+                <TextBox x:Name="SymbolBox" Text="{Binding Symbol, UpdateSourceTrigger=Explicit}" Width="100"
+                         CharacterCasing="Upper" FontWeight="Bold"
+                         KeyDown="SymbolBox_KeyDown" GotKeyboardFocus="SymbolBox_GotKeyboardFocus"
+                         PreviewMouseLeftButtonDown="SymbolBox_PreviewMouseLeftButtonDown">
+                    <TextBox.Style>
+                        <Style TargetType="TextBox">
+                            <Setter Property="Background" Value="#202A30"/>
+                            <Setter Property="Foreground" Value="#00C0FF"/>
+                            <Setter Property="CaretBrush" Value="White"/>
+                            <Setter Property="SelectionBrush" Value="#34566A"/>
+                            <Setter Property="SelectionTextBrush" Value="#E1F5FE"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsChecked, ElementName=DomLinkToggle}" Value="True">
+                                    <Setter Property="Background" Value="#1B2D38"/>
+                                    <Setter Property="Foreground" Value="#B3E5FC"/>
+                                    <Setter Property="CaretBrush" Value="#B3E5FC"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBox.Style>
+                </TextBox>
+                <ToggleButton x:Name="DomLinkToggle" Content="🔗" Width="28" Height="24" Margin="3,0,1,0"
+                              FontFamily="Segoe UI Symbol" FontSize="13" Padding="0"
+                              ToolTip="Link this chart to the main DOM symbol"
+                              Checked="DomLinkToggle_Changed" Unchecked="DomLinkToggle_Changed">
+                    <ToggleButton.Style>
+                        <Style TargetType="ToggleButton">
+                            <Setter Property="Background" Value="#18242B"/>
+                            <Setter Property="Foreground" Value="#90A4AE"/>
+                            <Setter Property="BorderBrush" Value="#344955"/>
+                            <Setter Property="BorderThickness" Value="1"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="2">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter Property="Background" Value="#0B2636"/>
+                                    <Setter Property="Foreground" Value="#64B5F6"/>
+                                    <Setter Property="BorderBrush" Value="#286487"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ToggleButton.Style>
+                </ToggleButton>
                 <ComboBox Style="{StaticResource ChartComboStyle}" ItemsSource="{Binding Timeframes}" SelectedItem="{Binding SelectedTimeframe}" Width="110" Margin="7,0" SelectionChanged="Timeframe_Changed"/>
                 <CheckBox Content="Extended" IsChecked="{Binding IncludeExtendedHours}" VerticalAlignment="Center" Margin="6,0" Click="Extended_Click"/>
                 <Button Content="Refresh" Width="70" Margin="8,0,3,0" Click="Refresh_Click"/><Button Content="Latest" Width="70" Margin="3,0" Click="Latest_Click"/>

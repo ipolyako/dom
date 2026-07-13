@@ -13,6 +13,7 @@ using FastDOM.Core.Enums;
 using FastDOM.Core.Models;
 using FastDOM.Infrastructure.Config;
 using FastDOM.Infrastructure.Logging;
+using FastDOM.MarketData.Interfaces;
 
 namespace FastDOM.App.Views;
 
@@ -26,6 +27,9 @@ public partial class MainWindow : Window
     private readonly IBrokerClient _broker;
     private readonly DomService _domService;
     private readonly AccountSummaryCache _accountCache;
+    private readonly FootprintService _footprintService;
+    private readonly IMarketDataClient _marketData;
+    private readonly HashSet<FootprintWindow> _footprintWindows = [];
     private readonly IServiceProvider _services;
     private readonly HashSet<string> _ordersBeingMoved = [];
     private bool _killSwitchPending;
@@ -51,6 +55,8 @@ public partial class MainWindow : Window
         ConfigManager config,
         IBrokerClient broker,
         DomService domService,
+        FootprintService footprintService,
+        IMarketDataClient marketData,
         IServiceProvider services,
         AccountSummaryCache accountCache)
     {
@@ -62,6 +68,8 @@ public partial class MainWindow : Window
         _config = config;
         _broker = broker;
         _domService = domService;
+        _footprintService = footprintService;
+        _marketData = marketData;
         _services = services;
         _accountCache = accountCache;
         _layoutStore = new WorkspaceLayoutStore(config);
@@ -166,6 +174,17 @@ public partial class MainWindow : Window
 
     private void MoversButton_Click(object sender, RoutedEventArgs e)
         => OpenMovers(null);
+
+    private void FootprintButton_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new FootprintWindow(_footprintService, _marketData, _vm.SelectedSymbol)
+        {
+            Owner = this
+        };
+        _footprintWindows.Add(window);
+        window.Closed += (_, _) => _footprintWindows.Remove(window);
+        window.Show();
+    }
 
     private void OpenMovers(WorkspaceWindowLayout? savedLayout)
     {
@@ -283,6 +302,7 @@ public partial class MainWindow : Window
                 _vm.HotButtonsViewModel,
                 _hotkeyService,
                 _config,
+                _services.GetRequiredService<DomSymbolLinkService>(),
                 request.Width > 0 && request.Height > 0 ? request : null);
             _chartWindows.Add(window);
             window.Closed += (_, _) => _chartWindows.Remove(window);

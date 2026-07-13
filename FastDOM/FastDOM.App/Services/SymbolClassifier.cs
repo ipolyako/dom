@@ -5,7 +5,12 @@ namespace FastDOM.App.Services;
 public static class SymbolClassifier
 {
     public static AssetType AssetTypeFor(string symbol) =>
-        IsOptionSymbol(symbol) ? AssetType.Option : AssetType.Equity;
+        IsOptionSymbol(symbol) ? AssetType.Option
+        : IsFutureSymbol(symbol) ? AssetType.Future
+        : AssetType.Equity;
+
+    public static bool IsFutureSymbol(string symbol) =>
+        symbol.TrimStart().StartsWith('/');
 
     public static string NormalizeDisplaySymbol(string symbol)
     {

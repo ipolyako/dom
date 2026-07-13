@@ -131,6 +131,9 @@ public partial class App : Application
         services.AddSingleton<DomService>();
         services.AddSingleton<HotkeyService>();
         services.AddSingleton<ScriptEngine>();
+        services.AddSingleton<FootprintDerbyRepository>();
+        services.AddSingleton<FootprintService>();
+        services.AddSingleton<DomSymbolLinkService>();
 
         // ViewModels
         services.AddTransient<MainViewModel>();

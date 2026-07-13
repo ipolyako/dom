@@ -86,6 +86,12 @@ public partial class DomViewModel : ObservableObject
         RebuildLadder();
     }
 
+    public void CenterLadderOnLastInView()
+    {
+        CenterLadderOnLast();
+        CenterRequested?.Invoke();
+    }
+
     partial void OnIsLockedChanged(bool value)
     {
         if (value)

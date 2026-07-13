@@ -167,7 +167,7 @@ public class TradingChartControl : FrameworkElement
         {
             var index = Math.Clamp((int)(p.X / barW), 0, data.Length - 1); var c = data[index]; var x = (index + .5) * barW;
             var dash = new Pen(Frozen("#78909C"), .8) { DashStyle = DashStyles.Dash }; dc.DrawLine(dash, new Point(x, top), new Point(x, ActualHeight - bottomAxis)); dc.DrawLine(dash, new Point(0, p.Y), new Point(plotRight, p.Y));
-            var value = max - (decimal)((p.Y - top) / priceHeight) * (max - min); dc.DrawRectangle(Frozen("#37474F"), null, new Rect(plotRight, p.Y - 10, rightAxis, 20)); Text(dc, value.ToString(value < 10 ? "F3" : "F2"), plotRight + 5, p.Y - 8, Brushes.White, 11);
+            var value = max - (decimal)((p.Y - top) / priceHeight) * (max - min); dc.DrawRectangle(Frozen("#263238"), null, new Rect(plotRight, p.Y - 10, rightAxis, 20)); Text(dc, value.ToString(value < 10 ? "F3" : "F2"), plotRight + 5, p.Y - 8, Frozen("#FFD54F"), 11);
             dc.DrawRectangle(Frozen("#121A20"), null, new Rect(185, 2, 520, 22)); Text(dc, $"{c.Timestamp:g}   O {c.Open:F2}  H {c.High:F2}  L {c.Low:F2}  C {c.Close:F2}  V {c.Volume:N0}", 192, 6, Brushes.White, 11);
         }
     }

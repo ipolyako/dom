@@ -230,6 +230,10 @@ public class DomService : IDisposable
     private void OnQuote(Quote q)
     {
         if (q.Symbol != _symbolInfo.Symbol) return;
+        if (_ladderCenterPrice is null)
+        {
+            _ladderCenterPrice = _symbolInfo.RoundToTick(q.Last);
+        }
         _currentQuote = q;
         QuoteUpdated?.Invoke(q);
         DomUpdated?.Invoke();
